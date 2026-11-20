@@ -1,0 +1,48 @@
+# Etape 2, manuelle : le meme conteneur sur GKE Autopilot (cluster cree par
+# Terraform avec activer_gke = true), puis terraform destroy du cluster.
+name: GKE (etape 2, manuel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      etiquette:
+        description: Etiquette de l'image deja poussee (empreinte du commit)
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJET: ${{ vars.GCP_PROJET }}
+  REGION: europe-west1
+
+jobs:
+  helm:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_FOURNISSEUR }}
+          service_account: ${{ secrets.GCP_COMPTE_DEPLOIEMENT }}
+
+      - uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: assistant-mesure
+          location: ${{ env.REGION }}
+
+      - uses: azure/setup-helm@v4
+
+      - name: helm upgrade --install
+        run: |
+          helm upgrade --install assistant infra/helm/assistant \
+            --namespace assistant --create-namespace \
+            -f infra/helm/assistant/values-mesure.yaml \
+            --set image.depot="${REGION}-docker.pkg.dev/${PROJET}/assistant/assistant" \
+            --set image.etiquette="${{ inputs.etiquette }}" \
+            --set compteService.compteGcp="assistant-execution@${PROJET}.iam.gserviceaccount.com" \
+            --set env.ASSISTANT_MOTEUR_PROJET_GCP="${PROJET}" \
+            --wait --timeout 10m

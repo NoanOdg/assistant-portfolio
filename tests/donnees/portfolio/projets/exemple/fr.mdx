@@ -1,0 +1,37 @@
+---
+titre: "Surveillance : un moniteur de pannes"
+accroche: Un moniteur qui repère les pannes de machines avant l'arrêt de la ligne.
+langue: fr
+projet: exemple
+---
+
+<Verdict ids={["taux-detection"]}>
+  <Fragment slot="quoi">
+    Un moniteur de pannes pour une ligne de production.
+  </Fragment>
+  <Fragment slot="dur">
+    Les pannes sont rares et les journaux bruités.
+  </Fragment>
+</Verdict>
+
+**Un projet d'école**, mené à trois.
+
+## Le problème des arrêts
+
+Une ligne s'arrête **sans prévenir**, et chaque arrêt coûte une demi-journée.
+Le moniteur lit <Metrique id="capteurs" /> en continu.
+
+<Schema src="exemple" langue="fr" />
+
+## Ce que le moniteur a mesuré
+
+### Le taux de détection
+
+Sur le jeu tenu à part, il détecte <Metrique id="taux-detection" /> des pannes.
+
+<Preuve type="mesure" source="docs/fiche-secrete.md">
+Le rejeu a été fait sur des journaux jamais vus.
+</Preuve>
+
+<Encadre ids={["taux-detection", "capteurs"]}
+  titre="Le moniteur en bref" />

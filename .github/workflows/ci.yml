@@ -1,0 +1,67 @@
+# Lint, tests, evaluation hors ligne, Terraform et Helm. Aucun acces a Google Cloud.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run pytest
+
+  evaluation-locale:
+    # Le harnais complet avec les faux : prouve qu'il tourne et que les controles
+    # par le code tiennent. Corpus fictif des tests : la CI reste hermetique.
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run assistant-ingerer --source mdx --contenu tests/donnees/portfolio --sortie build/corpus.jsonl
+      - run: uv run assistant-evaluer --cible local --juge heuristique --sortie build/eval-locale.json
+      - run: uv run assistant-porte --resultats build/eval-locale.json --profil local
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+        working-directory: infra/terraform
+      - run: terraform init -backend=false -input=false
+        working-directory: infra/terraform/environnements/prod
+      - run: terraform validate
+        working-directory: infra/terraform/environnements/prod
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint infra/helm/assistant --set image.etiquette=ci

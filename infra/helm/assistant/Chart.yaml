@@ -1,0 +1,6 @@
+apiVersion: v2
+name: assistant
+description: Assistant du portfolio sur GKE Autopilot (etape 2, le temps d'une mesure).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

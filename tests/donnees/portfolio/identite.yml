@@ -1,0 +1,40 @@
+# Identite fictive pour les tests. Un commentaire ne doit jamais entrer au corpus.
+nom: Personne Exemple
+email: contact@exemple.test
+domaine: exemple.test
+profils:
+  linkedin: https://www.linkedin.com/in/exemple/
+titre:
+  metier:
+    fr: Ingénieur IA
+    en: AI Engineer
+  cv:
+    fr: Ingénieur IA | Data Scientist
+    en: AI Engineer | Data Scientist
+alternance:
+  debut: 2023-04
+  employeur: ECOLE
+  preposition: "à l'"
+  ville: Ville
+competences:
+  - famille:
+      fr: Langages
+      en: Languages
+    elements:
+      - Python
+      - SQL
+diplome:
+  intitule: Ingénieur en informatique
+  ecole: École Exemple
+  obtention: 2026-09
+disponibilite: 2027-03
+ville: Île-de-France
+langues:
+  - langue: Français
+    niveau: Langue maternelle
+  - langue: Anglais
+    niveau: C1
+    precision: TOEIC 950
+cv:
+  fr: /CV_Exemple.pdf
+  en: /Resume_Exemple.pdf

@@ -1,0 +1,45 @@
+# Valeurs par defaut. Les valeurs propres a l'environnement vont dans values-<env>.yaml.
+image:
+  depot: europe-west1-docker.pkg.dev/PROJET/assistant/assistant
+  etiquette: ""   # fixee par la CI (empreinte du commit)
+  politique: IfNotPresent
+
+replicas: 2
+
+ressources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+hpa:
+  actif: true
+  min: 2
+  max: 6
+  cpuCible: 70
+
+pdb:
+  minDisponibles: 1
+
+service:
+  type: LoadBalancer
+  port: 80
+
+# Compte Kubernetes lie au compte d'execution GCP (Workload Identity pour GKE).
+compteService:
+  nom: assistant
+  compteGcp: assistant-execution@PROJET.iam.gserviceaccount.com
+
+# Secret Kubernetes cree a la main (kubectl create secret generic), jamais dans le chart.
+# Cles attendues : session, turnstile.
+secretExistant: assistant-secrets
+
+env:
+  ASSISTANT_MOTEUR_MODE: vertex
+  ASSISTANT_MOTEUR_PROJET_GCP: PROJET
+  ASSISTANT_MOTEUR_REGION: europe-west1
+  ASSISTANT_SECURITE_ANTI_ROBOT: turnstile
+  ASSISTANT_RECHERCHE_SEUIL_DISTANCE_VERTEX: "-1"
+  ASSISTANT_SECURITE_COMPTE_EVALUATION: ""

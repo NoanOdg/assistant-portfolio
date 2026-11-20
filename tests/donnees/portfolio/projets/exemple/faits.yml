@@ -1,0 +1,47 @@
+id: exemple
+nature: academique
+personnes: 3
+periode: 2025-09 → 2026-01
+stack:
+  - Python
+  - Docker
+metriques:
+  - id: taux-detection
+    libelle:
+      fr: Pannes détectées par le moniteur
+      en: Failures caught by the monitor
+    valeur: 0.873
+    affichage: pourcentage
+    unite:
+      fr: "%"
+      en: "%"
+    jeu: test
+    statut: mesure
+    effectif: 412
+    methode:
+      fr: Rejeu des journaux de panne sur un jeu tenu à part.
+      en: Replay of failure logs on a held-out set.
+    limite:
+      fr: Un seul site industriel, donc une seule famille de pannes.
+      en: A single industrial site, hence a single family of failures.
+    source: docs/fiche-secrete.md
+    verification:
+      mode: manuelle
+      date: 2026-01-10
+      par: relecteur interne
+      note: ne doit jamais sortir du depot
+  - id: capteurs
+    libelle:
+      fr: Capteurs lus en continu
+      en: Sensors read continuously
+    valeur: 1250000
+    affichage: compact
+    unite:
+      fr: capteurs
+      en: sensors
+    jeu: production
+    statut: mesure
+    methode:
+      fr: Décompte des flux déclarés dans la configuration du collecteur.
+      en: Count of the streams declared in the collector configuration.
+    source: docs/fiche-secrete.md

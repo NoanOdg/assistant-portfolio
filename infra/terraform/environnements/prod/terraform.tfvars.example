@@ -1,0 +1,11 @@
+# Copier en terraform.tfvars (ignore par git) et remplir. Aucun secret ici.
+projet                 = "assistant-portfolio-XXXX"
+numero_projet          = "000000000000"
+compte_facturation     = "XXXXXX-XXXXXX-XXXXXX"
+depot_github           = "NoanOdg/assistant-portfolio"
+id_proprietaire_github = "00000000"
+region                 = "europe-west1"
+budget_mensuel         = 5
+devise                 = "EUR"
+seuil_distance         = "-1"
+activer_gke            = false

@@ -1,0 +1,69 @@
+# Reglages de l'assistant. Chaque cle peut etre remplacee par une variable
+# d'environnement ASSISTANT_<SECTION>_<CLE> (exemple : ASSISTANT_MOTEUR_MODE=vertex).
+# Aucun secret ici : les secrets arrivent par l'environnement (Secret Manager).
+
+[moteur]
+# "local" : faux embeddings, faux redacteur, recherche en memoire (tests, poste).
+# "vertex" : Vertex AI et Firestore (Cloud Run). Jamais lance par les tests.
+mode = "local"
+projet_gcp = ""
+region = "europe-west1"
+modele_redaction = "gemini-3.1-flash-lite"   # a verifier dans la console au jour 1
+modele_embeddings = "gemini-embedding-001"
+dimensions = 768
+# Niveau de reflexion du modele de redaction (vide = valeur par defaut du modele).
+reflexion = "minimal"
+temperature = 0.2
+
+[corpus]
+# Fichier produit par assistant-ingerer. Le mode local l'indexe en memoire au demarrage.
+fichier = "build/corpus.jsonl"
+# Version servie : fixee par la CI au deploiement de chaque revision.
+version = "local"
+collection = "corpus"
+
+[recherche]
+passages = 6
+# Distance cosinus (1 - similarite). Au-dessus pour le meilleur passage : refus
+# ecrit d'avance, sans appeler le modele. Valeur locale calee sur le faux
+# embedder avec assistant-caler-seuil ; la valeur Vertex reste a caler au jour 2.
+seuil_distance_local = 0.759298
+seuil_distance_vertex = -1.0   # -1 = non cale : le mode vertex refuse de demarrer
+
+[limites]
+caracteres_question = 500
+jetons_reponse = 450
+delai_reponse_s = 30
+questions_par_minute = 5
+questions_par_jour_visiteur = 30
+questions_par_jour_global = 60
+questions_par_jour_evaluation = 150
+duree_session_s = 1800
+
+[securite]
+origines = ["https://noan-ouedraogo.dev", "https://www.noan-ouedraogo.dev"]
+# "desactive" en local ; "turnstile" en production.
+anti_robot = "desactive"
+domaines_autorises = ["noan-ouedraogo.dev", "linkedin.com"]
+# Compte de service autorise a jouer l'evaluation sur la revision candidate.
+compte_evaluation = ""
+# Audience des jetons d'identite de l'evaluation (chaine fixe : l'URL de la
+# revision candidate change a chaque deploiement).
+audience_evaluation = "assistant-portfolio-evaluation"
+# Rang de l'adresse client dans X-Forwarded-For, compte depuis la fin.
+# A verifier au jour 1 sur Cloud Run.
+rang_ip_depuis_la_fin = 1
+
+[journal]
+# Texte des questions garde 30 jours (TTL Firestore) pour enrichir le jeu d'evaluation.
+garder_questions = false
+duree_questions_jours = 30
+
+[tarifs]
+# Dollars par million de jetons (conception, 19/11/2026). A confirmer dans la console.
+redaction_entree = 0.25
+redaction_sortie = 1.50
+embeddings = 0.15
+
+[site]
+url = "https://noan-ouedraogo.dev"

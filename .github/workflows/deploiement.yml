@@ -1,0 +1,143 @@
+# Deploiement sans cle (OIDC + Workload Identity Federation) :
+# tests -> corpus -> indexation -> image -> revision candidate sans trafic
+# -> evaluation sur la candidate -> porte -> bascule du trafic.
+# Une porte fermee arrete tout : la revision en ligne reste celle d'avant.
+name: Deploiement
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "prompts/**"
+      - "config/**"
+      - "evaluation/**"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+  repository_dispatch:
+    types: [portfolio-publie]
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: deploiement
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJET: ${{ vars.GCP_PROJET }}
+  REGION: europe-west1
+  SERVICE: assistant
+  SITE: https://noan-ouedraogo.dev
+  AUDIENCE_EVALUATION: assistant-portfolio-evaluation
+
+jobs:
+  verifications:
+    uses: ./.github/workflows/ci.yml
+
+  deployer:
+    needs: verifications
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      ASSISTANT_MOTEUR_MODE: vertex
+      ASSISTANT_MOTEUR_PROJET_GCP: ${{ vars.GCP_PROJET }}
+      ASSISTANT_MOTEUR_REGION: europe-west1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen --extra gcp
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_FOURNISSEUR }}
+          service_account: ${{ secrets.GCP_COMPTE_DEPLOIEMENT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Versions
+        id: v
+        run: |
+          echo "corpus=$(date -u +%Y%m%d%H%M)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGION}-docker.pkg.dev/${PROJET}/assistant/assistant:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          REV=$(gcloud run services describe "$SERVICE" --region "$REGION" \
+                --format='value(status.traffic[0].revisionName)' || true)
+          PREC=""
+          if [ -n "$REV" ]; then
+            PREC=$(gcloud run revisions describe "$REV" --region "$REGION" \
+                   --format='value(metadata.labels.corpus)' || true)
+          fi
+          echo "precedente=$PREC" >> "$GITHUB_OUTPUT"
+
+      - name: Corpus depuis le site publie
+        run: uv run assistant-ingerer --source site --site "$SITE" --sortie build/corpus.jsonl
+
+      - name: Indexation dans une version neuve (rien n'est servi)
+        run: |
+          uv run assistant-indexer --corpus build/corpus.jsonl \
+            --version "${{ steps.v.outputs.corpus }}" \
+            --precedente "${{ steps.v.outputs.precedente }}"
+
+      - name: Image
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build --build-arg CORPUS_VERSION="${{ steps.v.outputs.corpus }}" \
+            -t "${{ steps.v.outputs.image }}" .
+          docker push "${{ steps.v.outputs.image }}"
+
+      - name: Revision candidate, sans trafic
+        run: |
+          gcloud run deploy "$SERVICE" --image "${{ steps.v.outputs.image }}" \
+            --region "$REGION" --no-traffic --tag candidate \
+            --labels "corpus=${{ steps.v.outputs.corpus }},commit=${GITHUB_SHA::7}" --quiet
+          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json \
+                | jq -r '.status.traffic[] | select(.tag=="candidate") | .url')
+          echo "URL_CANDIDATE=$URL" >> "$GITHUB_ENV"
+
+      - id: jeton
+        name: Jeton d'identite de l'evaluation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_FOURNISSEUR }}
+          service_account: ${{ secrets.GCP_COMPTE_DEPLOIEMENT }}
+          token_format: id_token
+          id_token_audience: ${{ env.AUDIENCE_EVALUATION }}
+          id_token_include_email: true
+
+      - name: Evaluation sur la candidate
+        env:
+          ASSISTANT_JETON_EVALUATION: ${{ steps.jeton.outputs.id_token }}
+        run: |
+          uv run assistant-evaluer --cible http --url "$URL_CANDIDATE" --juge vertex \
+            --sortie build/eval-candidate.json
+
+      - name: Porte de qualite
+        run: |
+          uv run assistant-porte --resultats build/eval-candidate.json --profil production \
+            --reference evaluation/reference.json
+
+      - name: Resultats de l'evaluation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-${{ github.sha }}
+          path: build/eval-candidate.json
+          if-no-files-found: ignore
+
+      - name: Bascule du trafic
+        run: gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-tags candidate=100
+
+      - name: Controle apres bascule
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
+          curl -fsS "$URL/sante"

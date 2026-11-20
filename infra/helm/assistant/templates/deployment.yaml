@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "assistant.nom" . }}
+  labels:
+    {{- include "assistant.etiquettes" . | nindent 4 }}
+spec:
+  {{- if not .Values.hpa.actif }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "assistant.selection" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "assistant.selection" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.compteService.nom }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: assistant
+          image: "{{ .Values.image.depot }}:{{ required "image.etiquette est requise" .Values.image.etiquette }}"
+          imagePullPolicy: {{ .Values.image.politique }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            {{- range $cle, $valeur := .Values.env }}
+            - name: {{ $cle }}
+              value: {{ $valeur | quote }}
+            {{- end }}
+            - name: ASSISTANT_SECRET_SESSION
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretExistant }}
+                  key: session
+            - name: ASSISTANT_SECRET_TURNSTILE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretExistant }}
+                  key: turnstile
+                  optional: true
+          resources:
+            {{- toYaml .Values.ressources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet:
+              path: /sante
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /sante
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /sante
+              port: http
+            periodSeconds: 30

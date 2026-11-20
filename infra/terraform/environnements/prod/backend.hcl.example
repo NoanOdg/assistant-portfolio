@@ -1,0 +1,3 @@
+# Copier en backend.hcl (ignore par git). Bucket cree a la main, versionne.
+bucket = "assistant-portfolio-XXXX-tfstate"
+prefix = "prod"

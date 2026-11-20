@@ -1,0 +1,10 @@
+# Mesure de charge de l'etape 2 (paliers de 1 a 50 clients, puis 200 vraies
+# questions). Le redacteur simule aux delais realistes, qui mesure
+# l'infrastructure sans payer Gemini, reste a ecrire (voir README).
+replicas: 2
+hpa:
+  min: 2
+  max: 8
+env:
+  ASSISTANT_MOTEUR_PROJET_GCP: PROJET
+  ASSISTANT_SECURITE_ANTI_ROBOT: desactive
