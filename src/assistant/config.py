@@ -53,11 +53,17 @@ class Reglages:
     journal: dict
     tarifs: dict
     site: dict
+    agent: dict = field(default_factory=dict)
     secrets: dict = field(default_factory=dict, repr=False)
 
     @property
     def mode(self) -> str:
         return self.moteur["mode"]
+
+    @property
+    def branche(self) -> str:
+        """'chemin' (B, chemin fixe, service deploye) ou 'agent' (A, agent a outils)."""
+        return self.moteur.get("branche", "chemin")
 
     @property
     def seuil_distance(self) -> float:
@@ -68,6 +74,8 @@ class Reglages:
         """Refuse un demarrage incoherent plutot qu'un service qui repond mal."""
         if self.mode not in {"local", "vertex"}:
             raise ValueError(f"mode inconnu : {self.mode}")
+        if self.branche not in {"chemin", "agent"}:
+            raise ValueError(f"branche inconnue : {self.branche}")
         if not 0 < self.seuil_distance < 2:
             raise ValueError(
                 "seuil de distance non cale pour ce mode : lancer assistant-caler-seuil"
@@ -102,5 +110,6 @@ def charger(chemin: Path | None = None, env: dict[str, str] | None = None) -> Re
                 "site",
             )
         },
+        agent=d.get("agent", {}),
         secrets=secrets,
     )

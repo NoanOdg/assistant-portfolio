@@ -20,6 +20,7 @@ from assistant.corpus.site import SourceSite
 from assistant.modeles import Page, Section
 
 from .conftest import DONNEES
+from .pdf_factice import pdf_factice
 
 
 def test_rendu_des_valeurs_comme_le_site():
@@ -115,6 +116,15 @@ def test_ingestion_relancable(tmp_path, source_exemple):
     assert [m.empreinte for m in a] == [m.empreinte for m in b]
 
 
+CV_FACTICES = {
+    "/CV_Exemple.pdf": pdf_factice(
+        ["Moniteur de pannes en production", "+33 6 12 34 56 78", "contact@exemple.test"],
+        titre="CV Exemple",
+    ),
+    "/Resume_Exemple.pdf": pdf_factice(["Failure monitor in production"], titre="Resume Exemple"),
+}
+
+
 def _client_site() -> httpx.Client:
     fichiers = {
         "/sitemap-index.xml": "sitemap-index.xml",
@@ -125,6 +135,8 @@ def _client_site() -> httpx.Client:
     }
 
     def repondre(requete: httpx.Request) -> httpx.Response:
+        if requete.url.path in CV_FACTICES:
+            return httpx.Response(200, content=CV_FACTICES[requete.url.path])
         nom = fichiers.get(requete.url.path)
         if not nom:
             return httpx.Response(404)
@@ -139,7 +151,13 @@ def test_source_site_lit_le_plan_et_les_sections():
     assert {(p.url, p.langue, p.projet) for p in pages} == {
         ("/projets/exemple", "fr", "exemple"),
         ("/en/projets/exemple", "en", "exemple"),
+        ("/CV_Exemple.pdf", "fr", "cv"),
+        ("/Resume_Exemple.pdf", "en", "cv"),
     }
+    cv = next(p for p in pages if p.projet == "cv" and p.langue == "fr")
+    texte_cv = " ".join(s.texte for s in cv.sections)
+    assert "Moniteur de pannes" in texte_cv
+    assert "+33" not in texte_cv and "@" not in texte_cv
     fr = next(p for p in pages if p.langue == "fr")
     assert fr.titre == "Surveillance : un moniteur de pannes"
     par_ancre = {s.ancre: s for s in fr.sections}

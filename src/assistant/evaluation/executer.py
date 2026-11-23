@@ -7,6 +7,10 @@ Sur la revision candidate (CI) :
         --sortie build/eval-candidate.json
 Comparaison C, tout le site de la langue dans la consigne :
     assistant-evaluer --cible local --mode tout_le_corpus ...
+Comparaison A, agent a outils (B : --branche chemin, le defaut des reglages) :
+    assistant-evaluer --cible local --branche agent ...
+Brouillon du jeu v2 (validation du juge par Noan, jamais pour la porte) :
+    assistant-evaluer --fichier-jeu evaluation/jeu/questions-v2-brouillon.yaml ...
 Reserve scellee, une seule fois :
     assistant-evaluer --jeu reserve --motif "avant publication des chiffres" ...
 """
@@ -36,6 +40,8 @@ JOURNAL_RESERVE = jeu_mod.DOSSIER / "resultats" / "journal-reserve.jsonl"
 
 
 def projet_de_url(url: str) -> str:
+    if urlparse(url).path.lower().endswith(".pdf"):
+        return "cv"
     morceaux = [p for p in urlparse(url).path.strip("/").split("/") if p and p != "en"]
     if len(morceaux) >= 2 and morceaux[0] == "projets":
         return morceaux[1]
@@ -85,6 +91,8 @@ class CibleHttp:
 async def resultat(cible: Cible, q: jeu_mod.QuestionEval) -> dict:
     res: dict = {
         "id": q.id,
+        "question": q.question,
+        "attendu": q.attendu,
         "texte": "",
         "sources": [],
         "citees": False,
@@ -103,6 +111,10 @@ async def resultat(cible: Cible, q: jeu_mod.QuestionEval) -> dict:
             res["citees"] = d["citees"]
         elif e.type == "diagnostic":
             res["projets_passages"] = sorted({p["projet"] for p in d["passages"]})
+            res["passages"] = [
+                {"n": p.get("n", i), "projet": p["projet"], "texte": p.get("texte", "")}
+                for i, p in enumerate(d["passages"], 1)
+            ]
             res["brut"] = d.get("brut", "")
         elif e.type == "fin":
             res["chemin"] = d["chemin"]
@@ -115,6 +127,8 @@ async def resultat(cible: Cible, q: jeu_mod.QuestionEval) -> dict:
                 "meilleure_distance",
                 "jetons_entree",
                 "jetons_sortie",
+                "appels_modele",
+                "appels_outils",
             ):
                 res[k] = b.get(k)
     res["projets_cites"] = (
@@ -167,11 +181,13 @@ def _garde_reserve(motif: str | None, rejouer: bool) -> str:
     return empreinte
 
 
-async def _cible_locale(mode: str):
+async def _cible_locale(mode: str, branche: str | None = None):
     from assistant.fabrique import charger_corpus, construire
     from assistant.recherche import RechercheToutLeCorpus
 
     r = config.charger()
+    if branche:
+        r.moteur["branche"] = branche
     morceaux, coord = charger_corpus(r)
     c = await construire(r, morceaux, coord)
     if mode == "tout_le_corpus":
@@ -185,6 +201,10 @@ async def principal(a: argparse.Namespace) -> int:
     if a.jeu == "reserve":
         _garde_reserve(a.motif, a.rejouer_reserve)
         questions = jeu_mod.charger(jeu_mod.RESERVE)
+    elif a.fichier_jeu:
+        if a.fichier_jeu.resolve() == jeu_mod.RESERVE.resolve():
+            raise SystemExit("la reserve scellee se joue par --jeu reserve, avec son motif")
+        questions = jeu_mod.charger(a.fichier_jeu)
     else:
         questions = jeu_mod.charger(jeu_mod.JEU_TRAVAIL)
     if a.cible == "http":
@@ -193,18 +213,19 @@ async def principal(a: argparse.Namespace) -> int:
             raise SystemExit("--url et ASSISTANT_JETON_EVALUATION sont requis pour la cible http")
         cible: Cible = CibleHttp(a.url, jeton)
     else:
-        cible = await _cible_locale(a.mode)
+        cible = await _cible_locale(a.mode, a.branche)
     if a.juge == "vertex":
         r = config.charger()
-        juge: Juge = JugeVertex(r.moteur["projet_gcp"], r.moteur["region"], a.modele_juge)
+        juge: Juge = JugeVertex(r.moteur["projet_gcp"], r.moteur["region_redaction"], a.modele_juge)
     else:
         juge = JugeHeuristique()
     resultats, mesures = await evaluer(questions, cible, juge)
     sortie = {
         "le": dt.datetime.now(dt.UTC).isoformat(),
-        "jeu": a.jeu,
+        "jeu": str(a.fichier_jeu) if a.fichier_jeu else a.jeu,
         "cible": a.cible,
         "mode": a.mode,
+        "branche": a.branche or (config.charger().branche if a.cible == "local" else "service"),
         "juge": juge.nom,
         "mesures": mesures,
         "resultats": resultats,
@@ -219,17 +240,33 @@ async def principal(a: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Joue le jeu d'evaluation.")
     p.add_argument("--jeu", choices=["travail", "reserve"], default="travail")
+    p.add_argument(
+        "--fichier-jeu",
+        type=Path,
+        help="autre jeu a jouer a la place du jeu de travail (brouillon v2, par exemple)",
+    )
     p.add_argument("--cible", choices=["local", "http"], default="local")
     p.add_argument("--url")
     p.add_argument("--mode", choices=["rag", "tout_le_corpus"], default="rag")
+    p.add_argument(
+        "--branche",
+        choices=["chemin", "agent"],
+        help="branche jouee en processus (defaut : moteur.branche des reglages)",
+    )
     p.add_argument("--juge", choices=["heuristique", "vertex"], default="heuristique")
     p.add_argument("--modele-juge", default="gemini-3.8-flash")
     p.add_argument("--sortie", type=Path, default=Path("build/evaluation.json"))
     p.add_argument("--motif")
     p.add_argument("--rejouer-reserve", action="store_true")
     a = p.parse_args(argv)
+    if a.fichier_jeu and a.jeu == "reserve":
+        p.error("--fichier-jeu et --jeu reserve s'excluent")
     if a.mode == "tout_le_corpus" and a.cible != "local":
         p.error("la comparaison tout_le_corpus se joue en processus (--cible local)")
+    if a.branche and a.cible != "local":
+        p.error("--branche se joue en processus (--cible local) : la cible http sert sa branche")
+    if a.mode == "tout_le_corpus" and a.branche == "agent":
+        p.error("tout_le_corpus est une variante du chemin fixe : --branche chemin")
     return asyncio.run(principal(a))
 
 

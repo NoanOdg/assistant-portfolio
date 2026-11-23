@@ -19,6 +19,8 @@ TEXTES = {
         "erreur": "L'assistant n'a pas pu répondre. Réessayez dans un instant.",
         "etape_recherche": "Recherche dans le portfolio",
         "etape_redaction": "Rédaction de la réponse",
+        "etape_lecture": "Lecture de la page : {titre}",
+        "etape_liste": "Liste des projets",
     },
     "en": {
         "hors_corpus": "I can't find an answer to this question in the portfolio. "
@@ -36,6 +38,8 @@ TEXTES = {
         "erreur": "The assistant couldn't answer. Please try again shortly.",
         "etape_recherche": "Searching the portfolio",
         "etape_redaction": "Writing the answer",
+        "etape_lecture": "Reading the page: {titre}",
+        "etape_liste": "Listing the projects",
     },
 }
 

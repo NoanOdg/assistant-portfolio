@@ -43,12 +43,6 @@ variable "modele_redaction" {
   default = "gemini-3.1-flash-lite"
 }
 
-variable "seuil_distance" {
-  description = "Seuil de refus Vertex, cale au jour 2. -1 tant qu'il n'est pas cale."
-  type        = string
-  default     = "-1"
-}
-
 variable "activer_gke" {
   description = "Etape 2 seulement, le temps d'une mesure."
   type        = bool

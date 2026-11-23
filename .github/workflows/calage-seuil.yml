@@ -1,0 +1,46 @@
+# Calage du seuil de refus Vertex, a la demande. Indexe le site publie dans une
+# version dediee, mesure les distances du jeu de travail (jamais la reserve) et
+# affiche le seuil propose. Rien n'est ecrit dans la configuration : la valeur
+# est recopiee a la main dans config/reglages.toml.
+name: Calage du seuil
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  SITE: https://noan-ouedraogo.dev
+
+jobs:
+  caler:
+    runs-on: ubuntu-latest
+    env:
+      ASSISTANT_MOTEUR_MODE: vertex
+      ASSISTANT_MOTEUR_PROJET_GCP: ${{ vars.GCP_PROJET }}
+      ASSISTANT_MOTEUR_REGION: europe-west1
+      ASSISTANT_CORPUS_VERSION: calage-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen --extra gcp
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_FOURNISSEUR }}
+          service_account: ${{ secrets.GCP_COMPTE_DEPLOIEMENT }}
+
+      - name: Corpus depuis le site publie
+        run: uv run assistant-ingerer --source site --site "$SITE" --sortie build/corpus.jsonl
+
+      - name: Indexation dans une version de calage
+        run: uv run assistant-indexer --corpus build/corpus.jsonl --version "$ASSISTANT_CORPUS_VERSION"
+
+      - name: Seuil propose
+        run: uv run assistant-caler-seuil | tee -a "$GITHUB_STEP_SUMMARY"

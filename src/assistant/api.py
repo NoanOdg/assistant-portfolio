@@ -65,6 +65,7 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
             modele=reglages.moteur["modele_redaction"],
             corpus=reglages.corpus["version"],
             consigne=app.state.c.assistant.version_consigne,
+            branche=app.state.c.assistant.branche,
         )
         yield
 
@@ -153,6 +154,7 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
                             modele=c.assistant.generateur.nom,
                             corpus=r.corpus["version"],
                             consigne=c.assistant.version_consigne,
+                            branche=c.assistant.branche,
                             **e.donnees["bilan"],
                         )
                     yield sse(e)

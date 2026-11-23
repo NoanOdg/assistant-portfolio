@@ -57,6 +57,8 @@ def empreinte_consigne(consigne: str) -> str:
 
 
 class Assistant:
+    branche = "chemin"
+
     def __init__(
         self,
         embedder: Embedder,
@@ -106,6 +108,68 @@ class Assistant:
             )
         return res
 
+    def _aiguillage(self, question: str, langue: str) -> tuple[list[Evenement], str] | None:
+        """Avant toute recherche et tout modele : donnees personnelles -> refus ecrit,
+        contact -> carte rendue par le code. None : la question suit son cours."""
+        route = aiguiller(question)
+        if route == "personnel":
+            texte = textes.texte(langue, "personnel")
+            return [Evenement("refus", {"motif": "personnel", "texte": texte})], "refus_personnel"
+        if route == "contact":
+            return self._evenements_carte(langue), "carte"
+        return None
+
+    def _evenements_carte(self, langue: str) -> list[Evenement]:
+        return [
+            Evenement("carte", self._carte(langue)),
+            Evenement("texte", {"texte": textes.texte(langue, "contact")}),
+        ]
+
+    def _fin(
+        self,
+        chemin: str,
+        bilan: Bilan,
+        t0: float,
+        diagnostic: bool,
+        passages: list[Passage],
+        brut: str,
+        affiche: str,
+    ) -> list[Evenement]:
+        """Bilan, cout et evenements de fin, communs aux branches A et B."""
+        bilan.chemin = chemin
+        bilan.duree_ms = round((time.perf_counter() - t0) * 1000, 1)
+        bilan.cout_usd = round(
+            bilan.jetons_entree * self.p.tarif_entree / 1e6
+            + bilan.jetons_sortie * self.p.tarif_sortie / 1e6,
+            6,
+        )
+        evts = []
+        if diagnostic:
+            evts.append(
+                Evenement(
+                    "diagnostic",
+                    {
+                        # Le texte exact transmis au modele (contenu public) :
+                        # le juge en a besoin pour accepter un fait ajoute exact.
+                        "passages": [
+                            {
+                                "n": i,
+                                "id": p.morceau.id,
+                                "url": p.morceau.url,
+                                "projet": p.morceau.projet,
+                                "distance": round(p.distance, 4),
+                                "texte": p.morceau.texte_indexe,
+                            }
+                            for i, p in enumerate(passages, 1)
+                        ],
+                        "brut": brut,
+                        "affiche": affiche,
+                    },
+                )
+            )
+        evts.append(Evenement("fin", {"chemin": chemin, "bilan": asdict(bilan)}))
+        return evts
+
     async def repondre(
         self, question: str, langue: str, diagnostic: bool = False
     ) -> AsyncIterator[Evenement]:
@@ -116,48 +180,12 @@ class Assistant:
         affiche = ""
 
         def fin(chemin: str) -> list[Evenement]:
-            bilan.chemin = chemin
-            bilan.duree_ms = round((time.perf_counter() - t0) * 1000, 1)
-            bilan.cout_usd = round(
-                bilan.jetons_entree * self.p.tarif_entree / 1e6
-                + bilan.jetons_sortie * self.p.tarif_sortie / 1e6,
-                6,
-            )
-            evts = []
-            if diagnostic:
-                evts.append(
-                    Evenement(
-                        "diagnostic",
-                        {
-                            "passages": [
-                                {
-                                    "id": p.morceau.id,
-                                    "url": p.morceau.url,
-                                    "projet": p.morceau.projet,
-                                    "distance": round(p.distance, 4),
-                                }
-                                for p in passages
-                            ],
-                            "brut": brut,
-                            "affiche": affiche,
-                        },
-                    )
-                )
-            evts.append(Evenement("fin", {"chemin": chemin, "bilan": asdict(bilan)}))
-            return evts
+            return self._fin(chemin, bilan, t0, diagnostic, passages, brut, affiche)
 
-        route = aiguiller(question)
-        if route == "personnel":
-            yield Evenement(
-                "refus", {"motif": "personnel", "texte": textes.texte(langue, "personnel")}
-            )
-            for e in fin("refus_personnel"):
-                yield e
-            return
-        if route == "contact":
-            yield Evenement("carte", self._carte(langue))
-            yield Evenement("texte", {"texte": textes.texte(langue, "contact")})
-            for e in fin("carte"):
+        ecrit = self._aiguillage(question, langue)
+        if ecrit:
+            evts, chemin = ecrit
+            for e in evts + fin(chemin):
                 yield e
             return
 
@@ -183,6 +211,7 @@ class Assistant:
         contenu = construire_contenu(question, passages)
         demarre = False
         refus_modele = False
+        bilan.appels_modele = 1
         try:
             async with asyncio.timeout(self.p.delai_s):
                 async for frag in self.generateur.rediger(

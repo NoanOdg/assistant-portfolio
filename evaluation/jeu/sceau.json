@@ -2,5 +2,13 @@
   "scelle_le": "2026-11-19",
   "statut": "brouillon, a valider par Noan avant scellement definitif",
   "reserve_sha256": "9ac6fb09d7ab53b61ba2c6e67caeea15051d3cce58e2ffc8078f75eb12ffd012",
-  "consigne_juge_sha256": "0387902f4a9e7896bb7b7b79ae58103712ab40ba837c1f8801fd74c719bb81a0"
+  "consigne_juge_sha256": "b1ed652e95c15320eb9e852299846aba928fd723a13e136040165477fdd39625",
+  "historique_consigne_juge": [
+    {
+      "le": "2026-11-23",
+      "motif": "Regle juste reecrite le 23/11/2026 : faits cles attendus au lieu d'une phrase de reference, un fait ajoute exact present dans les passages n'est plus une faute, date du jour et passages transmis donnes au juge. Cause : 10 des 16 reponses jugees fausses a la premiere evaluation reelle l'etaient pour un fait ajoute exact.",
+      "ancienne_sha256": "0387902f4a9e7896bb7b7b79ae58103712ab40ba837c1f8801fd74c719bb81a0",
+      "nouvelle_sha256": "b1ed652e95c15320eb9e852299846aba928fd723a13e136040165477fdd39625"
+    }
+  ]
 }

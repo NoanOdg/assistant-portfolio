@@ -93,3 +93,5 @@ class Bilan:
     chiffres_remplaces: int = 0
     liens_retires: int = 0
     sources_citees: int = 0
+    appels_modele: int = 0
+    appels_outils: int = 0  # branche A seulement

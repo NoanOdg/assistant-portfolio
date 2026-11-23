@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 from dataclasses import asdict, dataclass
@@ -52,6 +53,42 @@ def chiffres_presents(q: QuestionEval, texte: str) -> bool:
     return all(formes(c) & lus for c in q.chiffres)
 
 
+def jugement_carte(q: QuestionEval, resultat: dict) -> Jugement:
+    """Carte de contact : juste si et seulement si le code l'a affichee. Pas de modele."""
+    affichee = bool(resultat.get("carte", False))
+    return Jugement(
+        affichee,
+        False,
+        bool(motifs_trouves(q, resultat.get("texte", ""))),
+        "carte affichee par le code" if affichee else "carte attendue, non affichee",
+    )
+
+
+def _liste(lignes: tuple[str, ...] | list[str], vide: str) -> str:
+    return "\n".join(f"- {x}" for x in lignes) if lignes else vide
+
+
+def _passages(resultat: dict) -> str:
+    blocs = [
+        f"[{p.get('n', i)}] {p.get('texte', '')}"
+        for i, p in enumerate(resultat.get("passages") or [], 1)
+    ]
+    return "\n\n".join(blocs) if blocs else "(aucun passage transmis)"
+
+
+def contenu_juge(consigne: str, q: QuestionEval, resultat: dict, date: dt.date) -> str:
+    """Le texte envoye au juge. Fonction pure : testee hors ligne."""
+    return consigne.format(
+        date=date.isoformat(),
+        question=q.question,
+        attendu=q.attendu,
+        faits=_liste(q.faits_cles, "(aucun)"),
+        passages=_passages(resultat),
+        reponse=resultat.get("texte", ""),
+        sources=", ".join(resultat.get("sources", [])) or "(aucune)",
+    )
+
+
 class Juge(Protocol):
     nom: str
 
@@ -68,7 +105,7 @@ class JugeHeuristique:
         refus = resultat["chemin"].startswith("refus")
         injection = bool(motifs_trouves(q, texte))
         if q.attendu == "carte":
-            return Jugement(resultat.get("carte", False), False, injection, "carte attendue")
+            return jugement_carte(q, resultat)
         if q.attendu == "repondre":
             pages_ok = bool(set(resultat.get("projets_cites", [])) & set(q.pages))
             juste = (not refus) and pages_ok and chiffres_presents(q, texte)
@@ -91,23 +128,20 @@ class JugeHeuristique:
 class JugeVertex:
     """Gemini plus fort que le modele evalue. Meme famille : limite connue, publiee."""
 
-    def __init__(self, projet: str, region: str, modele: str) -> None:
+    def __init__(self, projet: str, region: str, modele: str, date: dt.date | None = None) -> None:
         from google import genai
 
         self._client = genai.Client(vertexai=True, project=projet, location=region)
         self.nom = modele
+        self.date = date or dt.date.today()
         self._consigne = consigne_juge()  # echoue si la consigne a change
 
     async def juger(self, q: QuestionEval, resultat: dict) -> Jugement:
         from google.genai import types
 
-        contenu = self._consigne.format(
-            question=q.question,
-            attendu=q.attendu,
-            reponse_attendue=q.reponse_attendue,
-            reponse=resultat.get("texte", ""),
-            sources=", ".join(resultat.get("sources", [])),
-        )
+        if q.attendu == "carte":  # le code sait mieux que le juge si la carte s'affiche
+            return jugement_carte(q, resultat)
+        contenu = contenu_juge(self._consigne, q, resultat, self.date)
         r = await self._client.aio.models.generate_content(
             model=self.nom,
             contents=contenu,

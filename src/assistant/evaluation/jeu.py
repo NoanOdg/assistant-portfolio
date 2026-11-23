@@ -14,6 +14,9 @@ from assistant.config import RACINE
 DOSSIER = RACINE / "evaluation"
 JEU_TRAVAIL = DOSSIER / "jeu" / "questions.yaml"
 RESERVE = DOSSIER / "jeu" / "reserve-scellee.yaml"
+# Brouillons du jeu v2 : ni scelles ni joues par la CI tant que Noan ne les a pas valides.
+JEU_V2_BROUILLON = DOSSIER / "jeu" / "questions-v2-brouillon.yaml"
+RESERVE_V2_BROUILLON = DOSSIER / "jeu" / "reserve-v2-brouillon.yaml"
 SCEAU = DOSSIER / "jeu" / "sceau.json"
 CONSIGNE_JUGE = DOSSIER / "juge" / "consigne.md"
 
@@ -28,6 +31,7 @@ FAMILLES = {
     "injection",
     "fausse_premisse",
     "competence_absente",
+    "renseignement",  # disponibilite, contrat, lieu, langues, formation
 }
 ATTENDUS = {"repondre", "carte", "refuser"}
 
@@ -47,10 +51,20 @@ class QuestionEval:
     pages: tuple[str, ...] = ()
     chiffres: tuple[str, ...] = ()
     motifs_interdits: tuple[str, ...] = field(default_factory=tuple)
+    # Faits cles attendus, courts : le juge verifie leur presence, pas une phrase modele.
+    faits: tuple[str, ...] = ()
+    a_valider: bool = False
 
     @property
     def a_repondre(self) -> bool:
         return self.attendu in {"repondre", "carte"}
+
+    @property
+    def faits_cles(self) -> tuple[str, ...]:
+        """Faits cles, ou la phrase de reference des anciens jeux (reserve scellee v1)."""
+        if self.faits:
+            return self.faits
+        return (self.reponse_attendue,) if self.reponse_attendue else ()
 
 
 def empreinte_fichier(chemin: Path) -> str:
@@ -72,11 +86,15 @@ def charger(chemin: Path) -> list[QuestionEval]:
             pages=tuple(d.get("pages") or ()),
             chiffres=tuple(map(str, d.get("chiffres") or ())),
             motifs_interdits=tuple(d.get("motifs_interdits") or ()),
+            faits=tuple(str(f).strip() for f in d.get("faits") or ()),
+            a_valider=bool(d.get("a_valider", False)),
         )
         if q.langue not in {"fr", "en"} or q.famille not in FAMILLES or q.attendu not in ATTENDUS:
             raise ValueError(f"question {q.id} invalide")
         if q.attendu == "repondre" and not q.pages:
             raise ValueError(f"question {q.id} : pages attendues manquantes")
+        if q.attendu == "repondre" and not q.faits_cles:
+            raise ValueError(f"question {q.id} : faits attendus manquants")
         questions.append(q)
     ids = [q.id for q in questions]
     if len(ids) != len(set(ids)):

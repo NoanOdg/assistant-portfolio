@@ -6,9 +6,18 @@
 # "local" : faux embeddings, faux redacteur, recherche en memoire (tests, poste).
 # "vertex" : Vertex AI et Firestore (Cloud Run). Jamais lance par les tests.
 mode = "local"
+# "chemin" : branche B, chemin fixe par le code (service deploye).
+# "agent" : branche A, agent Gemini a outils (appels de fonctions), pour la
+# comparaison A/B/C de la conception (section 6). Le service reste en "chemin"
+# tant que la comparaison n'a pas tranche.
+branche = "chemin"
 projet_gcp = ""
+# Embeddings : region unique. Gemini n'est pas servi en europe-west1 (verifie le
+# 23/11/2026) : redaction et juge passent par la multiregion "eu", qui garde le
+# traitement dans l'Union europeenne.
 region = "europe-west1"
-modele_redaction = "gemini-3.1-flash-lite"   # a verifier dans la console au jour 1
+region_redaction = "eu"
+modele_redaction = "gemini-3.1-flash-lite"   # verifie en eu le 23/11/2026
 modele_embeddings = "gemini-embedding-001"
 dimensions = 768
 # Niveau de reflexion du modele de redaction (vide = valeur par defaut du modele).
@@ -26,9 +35,23 @@ collection = "corpus"
 passages = 6
 # Distance cosinus (1 - similarite). Au-dessus pour le meilleur passage : refus
 # ecrit d'avance, sans appeler le modele. Valeur locale calee sur le faux
-# embedder avec assistant-caler-seuil ; la valeur Vertex reste a caler au jour 2.
+# embedder avec assistant-caler-seuil. Valeur Vertex : workflow GitHub "Calage du
+# seuil", recopiee ici a la main apres relecture (seule source, pas de variable
+# d'environnement).
 seuil_distance_local = 0.759298
-seuil_distance_vertex = -1.0   # -1 = non cale : le mode vertex refuse de demarrer
+seuil_distance_vertex = 0.336559   # cale le 23/11/2026 (site avant refonte) ; -1 = non cale, refus de demarrer
+
+[agent]
+# Bornes de la branche A, appliquees par le code. Au-dela de max_appels_outils
+# ou de max_tours, le dernier tour se joue sans outils (sortie forcee) ; au-dela
+# du budget, le modele n'est plus appele.
+max_appels_outils = 6
+# Tours du modele, tour final compris : 3 tours d'outils puis la reponse.
+max_tours = 4
+# Jetons d'entree et de sortie cumules sur tous les tours d'une question.
+budget_jetons = 30000
+# Texte rendu par lire_page, au plus (la page est coupee entre deux sections).
+caracteres_page = 12000
 
 [limites]
 caracteres_question = 500

@@ -10,18 +10,19 @@ Cible : Cloud Run (FastAPI, réponses en flux SSE), Vertex AI (Gemini et embeddi
 
 | Dossier | Contenu |
 |---|---|
-| `src/assistant/corpus/` | Ingestion relançable : MDX du portfolio + `faits.yml` + `identite.yml` (source `mdx`), ou site publié lu par son plan (source `site`). Chiffres des composants `<Metrique>` résolus sur liste blanche (jamais `source` ni `verification`). Découpage par section h2/h3, en-tête de contexte, ancre conservée. Garde : plus de 30 % de morceaux disparus, rien n'est écrit. |
+| `src/assistant/corpus/` | Ingestion relançable : MDX du portfolio + `faits.yml` + `identite.yml` (source `mdx`), ou site publié lu par son plan (source `site`), plus les deux CV PDF liés depuis la page Contact (texte extrait par pypdf, téléphone, courriel, adresse et commune retirés avant indexation). Chiffres des composants `<Metrique>` résolus sur liste blanche (jamais `source` ni `verification`). Découpage par section h2/h3, en-tête de contexte, ancre conservée. Garde : plus de 30 % de morceaux disparus, rien n'est écrit. |
 | `src/assistant/embeddings.py`, `generation.py`, `recherche.py` | Interfaces, faux déterministes pour les tests, implémentations Vertex AI et Firestore. Recherche en mémoire et branche « tout le site dans la consigne ». |
 | `src/assistant/pipeline.py` | Chemin fixé par le code : aiguillage (données personnelles, contact), recherche, refus sous le seuil sans appeler le modèle, rédaction en flux, refus du modèle (`[REFUS]`) remplacé par un texte écrit d'avance, sources citées. |
+| `src/assistant/agent.py`, `outils.py`, `prompts/agent.md` | Branche A de la comparaison (`moteur.branche = "agent"`, défaut `"chemin"`) : agent Gemini à appels de fonctions, quatre outils en lecture seule (recherche au même seuil que B, lecture d'une page du corpus, liste des projets, carte de contact rendue par le code), boucle bornée (`[agent]` des réglages), mêmes gardes que B appliquées par le code, consigne versionnée par empreinte. |
 | `src/assistant/filtres.py` | Filtres en flux : chiffre absent des passages remplacé, liens hors liste blanche retirés, courriels, images, HTML, tirets longs. |
 | `src/assistant/api.py` | `POST /session`, `POST /question` (SSE), `GET /sante`. Limites : 500 caractères, 450 jetons, 30 s, 5 questions par minute et 30 par jour par visiteur, 60 par jour au total. Journaux JSON sur liste blanche : ni IP, ni navigateur, ni texte de question. |
-| `src/assistant/evaluation/` | Jeu de 40 questions (FR et EN, pièges compris), réserve scellée de 10, juge à consigne gelée par empreinte, mesures en taux absolus avec intervalle de Wilson, porte de la CI, calage du seuil, scellement. |
-| `evaluation/` | `jeu/questions.yaml`, `jeu/reserve-scellee.yaml`, `jeu/sceau.json`, `juge/consigne.md`, `seuils.toml`. |
+| `src/assistant/evaluation/` | Jeu de 40 questions (FR et EN, pièges compris), réserve scellée de 10, juge à consigne gelée par empreinte (faits clés, passages transmis, date du jour), cartes de contact notées par le code, mesures en taux absolus avec intervalle de Wilson, porte de la CI, calage du seuil, scellement, page de notation du juge par Noan et calcul de l'accord. |
+| `evaluation/` | `jeu/questions.yaml`, `jeu/reserve-scellee.yaml`, `jeu/sceau.json` (empreintes et historique de la consigne du juge), `jeu/questions-v2-brouillon.yaml` et `jeu/reserve-v2-brouillon.yaml` (à valider), `juge/consigne.md`, `seuils.toml`. |
 | `infra/terraform/` | Modules : API, Artifact Registry, Secret Manager, Firestore (index vectoriels, TTL), comptes de service, Workload Identity Federation, Cloud Run, budget, exclusion des journaux, GKE. Environnement `prod`. |
 | `infra/helm/assistant/` | Chart de l'étape 2 : Deployment, Service LoadBalancer, HPA, PDB, sondes, Workload Identity. |
 | `.github/workflows/` | `ci.yml` (lint, tests, évaluation hors ligne, Terraform, Helm), `deploiement.yml` (révision candidate sans trafic, évaluation, porte, bascule), `gke.yml` (manuel). |
 
-Vérifié le 19/11/2026 sur le PC : 70 tests verts, ruff sans remarque, `terraform fmt -check` et `terraform validate` verts (image Docker officielle, fournisseur google 7.46.2, sans backend), `helm lint` vert, image Docker construite et lancée en mode local.
+Vérifié le 23/11/2026 sur le PC : 123 tests verts (instrument d'évaluation, extraction des CV, branche agent), ruff sans remarque. Le 19/11/2026 : ruff sans remarque, `terraform fmt -check` et `terraform validate` verts (image Docker officielle, fournisseur google 7.46.2, sans backend), `helm lint` vert, image Docker construite et lancée en mode local.
 
 ## Ce qui est écrit mais jamais exécuté
 
@@ -56,6 +57,18 @@ uv run assistant-porte --resultats build/eval-locale.json --profil local
 uv run uvicorn assistant.api:app_depuis_env --factory --port 8080 --no-access-log
 ```
 
+Comparaison A/B/C de la conception (§ 6), **après** la mise en ligne de la refonte, le recalage du seuil et la validation du juge (étapes 8 et 9 ci-dessous). En processus, sur Vertex, avec le `build/corpus.jsonl` du site indexé dans la version servie :
+
+```sh
+uv sync --extra gcp
+export ASSISTANT_MOTEUR_MODE=vertex ASSISTANT_MOTEUR_PROJET_GCP=PROJET   ASSISTANT_CORPUS_VERSION=VERSION ASSISTANT_SECRET_SESSION=$(openssl rand -hex 32)
+uv run assistant-evaluer --cible local --branche agent --juge vertex --sortie build/comparaison-a.json
+uv run assistant-evaluer --cible local --branche chemin --juge vertex --sortie build/comparaison-b.json
+uv run assistant-evaluer --cible local --branche chemin --mode tout_le_corpus --juge vertex   --sortie build/comparaison-c.json
+```
+
+Règle écrite d'avance : A est gardé s'il n'est pas moins juste que C et s'il est moins cher ou plus rapide. Le service déployé reste en `chemin` tant que la comparaison n'a pas tranché.
+
 Les taux de l'évaluation locale ne mesurent rien de la qualité réelle : le faux rédacteur recopie la première phrase du meilleur passage. Ils prouvent que le harnais tourne et que les contrôles faits par le code tiennent.
 
 ## Ce que Noan doit faire lui-même
@@ -77,9 +90,9 @@ Dans cet ordre. Rien de tout cela n'a été fait.
    ```
    Le secret Turnstile vient du widget créé dans le tableau de bord Cloudflare (domaine noan-ouedraogo.dev).
 6. **Budget.** Vérifier que la devise du compte de facturation est l'euro (sinon changer `devise`), et que l'alerte arrive par courriel.
-7. **Quota et cache Vertex.** Abaisser le quota de requêtes Gemini du projet dans la console ; vérifier la mise en cache de 24 h et la désactiver si elle s'applique. Vérifier que les modèles existent en europe-west1 et leurs tarifs.
-8. **Valider le jeu d'évaluation.** Relire les 40 questions et la réserve (brouillons écrits d'après le portfolio du 19/11, à revoir après la réécriture du contenu), puis `uv run assistant-sceller --motif "validation par Noan"`.
-9. **Caler le seuil Vertex** depuis le PC, une fois le corpus indexé (`assistant-indexer`, moins de 0,02 $) : `ASSISTANT_MOTEUR_MODE=vertex ASSISTANT_MOTEUR_PROJET_GCP=PROJET uv run assistant-caler-seuil`, recopier la valeur dans `seuil_distance` des tfvars, `terraform apply`.
+7. **Quota et cache Vertex.** Gemini sur Vertex fonctionne en quota partagé dynamique : aucun quota par projet à abaisser. Les garde-fous sont le plafond quotidien de l'application, une seule instance Cloud Run et l'alerte de budget. Le compte de facturation doit être payant (un compte d'essai n'a pas accès à Gemini sur Vertex).
+8. **Valider le jeu, puis le juge, après la mise en ligne de la refonte** (rien n'est réglé sur le texte du site avant). Relire `jeu/questions-v2-brouillon.yaml` et `jeu/reserve-v2-brouillon.yaml` question par question (faits clés tirés du Profil, `a_valider: true` partout), puis les mettre à la place de `questions.yaml` et `reserve-scellee.yaml` et sceller : `uv run assistant-sceller --motif "validation par Noan"`. Valider ensuite le juge : jouer le jeu sur la révision en ligne (`assistant-evaluer --cible http ... --juge vertex --sortie build/eval-juge.json`), `uv run assistant-noter --resultats build/eval-juge.json`, ouvrir `build/notation-juge.html`, noter chaque réponse sans voir le juge, exporter `notes-noan.json`, puis `uv run assistant-accord --resultats build/eval-juge.json --notes notes-noan.json`. Sous 90 % d'accord, corriger `juge/consigne.md` et la resceller : `uv run assistant-sceller --consigne-juge --motif "..."`.
+9. **Caler le seuil Vertex** (le service refuse de démarrer tant qu'il vaut -1) : onglet Actions, workflow « Calage du seuil », « Run workflow » sur `main`. Il indexe le site dans une version `calage-…` (moins de 0,02 $) et affiche le seuil proposé, avec les questions écartées. Recopier la valeur dans `seuil_distance_vertex` de `config/reglages.toml`, pousser : le déploiement repart seul. Seule source du seuil : ce fichier (plus de variable Terraform). La valeur du 23/11 est calée sur l'ancien site : relancer le workflow après la mise en ligne de la refonte, puis l'étape 8.
 10. **Dépôt GitHub** (privé ou public, à trancher) : créer le dépôt, pousser, puis dans les réglages :
     - variable `GCP_PROJET` ;
     - secrets `GCP_WIF_FOURNISSEUR` et `GCP_COMPTE_DEPLOIEMENT` (sorties `fournisseur_wif` et `compte_deploiement` de Terraform) ;
@@ -90,7 +103,7 @@ Dans cet ordre. Rien de tout cela n'a été fait.
 
 ## Écarts avec la conception (`projets/mission6-conception.md`)
 
-1. **Pas de boucle d'agent ni de LangGraph** (révision du 19/11) : chemin fixé, un seul appel au modèle par question. L'appel d'outils n'est pas gratuit : la conception l'estimait à 2,3 appels par question. La comparaison garde deux branches : chemin fixé contre tout le site dans la consigne.
+1. **Le service déployé reste un chemin fixé** (révision du 19/11) : un seul appel au modèle par question. L'agent (branche A) existe pour la comparaison, sans LangGraph : boucle écrite à la main sur les appels de fonctions de google-genai, gardes placées dans le code. Outil `faits_projet` remplacé par `lire_page` (les chiffres de `faits.yml` sont déjà dans les pages du corpus). Une carte demandée par l'agent clôt la question, comme l'aiguillage de contact. Si aucun outil ne rend de passage après un tour, refus écrit d'avance sans rappeler le modèle : l'agent ne reformule que s'il a déjà de la matière.
 2. **Corpus local** : les MDX, avec les chiffres résolus depuis `faits.yml`. Pas besoin d'exporter `faits.json` pour l'instant. Les ancres imitent github-slugger : à vérifier contre le site rendu. La source `site` reste celle de la CI.
 3. **La version du corpus est inscrite dans l'image** : une révision Cloud Run sert un corpus fixe. On revient en arrière en reroutant le trafic, sans document `config/corpus_actif`.
 4. **L'évaluation de la CI passe la porte avec un jeton d'identité Google** du compte de déploiement, et a son propre plafond (150 par jour). La conception ne disait pas comment elle franchissait Turnstile. Elle ne disait pas non plus que 40 questions par passage mangeraient les deux tiers du plafond public de 60.

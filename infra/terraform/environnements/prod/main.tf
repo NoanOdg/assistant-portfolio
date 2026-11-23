@@ -64,7 +64,6 @@ module "service" {
   secret_session     = module.secrets.ids["assistant-cle-session"]
   secret_turnstile   = module.secrets.ids["assistant-turnstile"]
   modele_redaction   = var.modele_redaction
-  seuil_distance     = var.seuil_distance
   protection         = var.protection
   # Les valeurs des secrets doivent exister avant la premiere revision (README).
   depends_on = [module.secrets, module.firestore]

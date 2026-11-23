@@ -2,6 +2,8 @@
 
 Seul le contenu public entre, par construction. Chaque page est coupee en
 sections h2 et h3 d'apres les identifiants que le site pose sur ses titres.
+Les deux CV publics (PDF lies depuis la page Contact, absents du plan) entrent
+aussi, sans telephone, courriel ni adresse (corpus/pdf.py).
 Cette source n'est jamais appelee par les tests (client HTTP simule).
 """
 
@@ -15,10 +17,25 @@ import httpx
 from bs4 import BeautifulSoup, Tag
 
 from assistant.corpus.mdx import nettoyer_markdown
+from assistant.corpus.pdf import page_cv
 from assistant.modeles import Page, Section
 
 EXCLUS = (re.compile(r"^/(en/)?demo/"), re.compile(r"^/404"), re.compile(r"^/(en/)?contact/?$"))
 NS = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+
+
+PROTECTION_COURRIEL = "/cdn-cgi/l/email-protection#"
+
+
+def courriel_protege(code: str) -> str:
+    """Decode l'adresse que Cloudflare masque dans la page (cle XOR en tete)."""
+    try:
+        octets = bytes.fromhex(code)
+    except ValueError:
+        return ""
+    if len(octets) < 2:
+        return ""
+    return bytes(b ^ octets[0] for b in octets[1:]).decode("utf-8", errors="replace")
 
 
 def _projet(chemin: str) -> str:
@@ -98,21 +115,51 @@ class SourceSite:
             titre, sections = sections_html(self.client.get(url).raise_for_status().text)
             langue = "en" if chemin == "/en" or chemin.startswith("/en/") else "fr"
             pages.append(Page(chemin, langue, _projet(chemin), titre, tuple(sections)))
+        return pages + self.pages_cv()
+
+    def pages_cv(self) -> list[Page]:
+        """Les CV lies depuis la page Contact. Un lien casse fait echouer l'ingestion."""
+        pages = []
+        for langue, url in self.liens_cv().items():
+            contenu = self.client.get(url).raise_for_status().content
+            page = page_cv(contenu, urlparse(url).path, langue)
+            if page.sections:
+                pages.append(page)
         return pages
 
-    def coordonnees(self) -> dict:
-        """Lit la page Contact publiee : courriel, LinkedIn et liens des CV."""
+    def _liens_contact(self) -> list[str]:
         html = self.client.get(self.site + "/contact").raise_for_status().text
         soupe = BeautifulSoup(html, "html.parser")
         liens = [str(a.get("href", "")) for a in soupe.find_all("a")]
-        courriel = next((h[7:] for h in liens if h.startswith("mailto:")), "")
-        linkedin = next((h for h in liens if "linkedin.com" in h), "")
-        pdf = [h for h in liens if h.lower().endswith(".pdf")]
+        # Adresse masquee par Cloudflare : lien vers /cdn-cgi/... ou attribut data-cfemail.
+        for el in soupe.select("[data-cfemail]"):
+            liens.append("mailto:" + courriel_protege(str(el.get("data-cfemail", ""))))
+        return liens
+
+    def liens_cv(self, liens: list[str] | None = None) -> dict[str, str]:
+        liens = self._liens_contact() if liens is None else liens
+        pdf = [h for h in liens if urlparse(h).path.lower().endswith(".pdf")]
         cv = {
             "fr": next((h for h in pdf if "CV_" in h), ""),
             "en": next((h for h in pdf if "Resume_" in h), ""),
         }
-        cv = {k: (v if v.startswith("http") else self.site + v) for k, v in cv.items() if v}
+        return {k: (v if v.startswith("http") else self.site + v) for k, v in cv.items() if v}
+
+    def coordonnees(self) -> dict:
+        """Lit la page Contact publiee : courriel, LinkedIn et liens des CV."""
+        liens = self._liens_contact()
+        courriel = next((h[7:] for h in liens if h.startswith("mailto:") and "@" in h), "")
+        if not courriel:
+            courriel = next(
+                (
+                    courriel_protege(h.split("#", 1)[1])
+                    for h in liens
+                    if h.startswith(PROTECTION_COURRIEL)
+                ),
+                "",
+            )
+        linkedin = next((h for h in liens if "linkedin.com" in h), "")
+        cv = self.liens_cv(liens)
         return {
             "nom": "",
             "courriel": courriel,

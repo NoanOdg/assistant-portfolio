@@ -27,16 +27,15 @@ def caler(distances_a_repondre: list[float], part_ecartee: float = 0.05) -> floa
 
 
 async def distances(questions: list[jeu_mod.QuestionEval]) -> dict[str, float]:
-    from assistant.fabrique import charger_corpus, construire
+    from assistant.fabrique import charger_corpus, construire_recherche
 
     r = config.charger()
-    morceaux, coord = charger_corpus(r)
-    c = await construire(r, morceaux, coord)
-    a = c.assistant
+    morceaux, _ = charger_corpus(r)
+    embedder, recherche = await construire_recherche(r, morceaux)
     res = {}
     for q in questions:
-        v = (await a.embedder.vectoriser([q.question], "question"))[0]
-        p = await a.recherche.chercher(v, q.langue, 1)
+        v = (await embedder.vectoriser([q.question], "question"))[0]
+        p = await recherche.chercher(v, q.langue, 1)
         res[q.id] = p[0].distance if p else 2.0
     return res
 
@@ -55,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         f"a repondre ecartees a tort : {a_tort} sur "
         f"{sum(1 for q in questions if q.attendu == 'repondre')}"
     )
-    print("A recopier a la main dans config/reglages.toml, apres relecture.")
+    print("A recopier a la main dans config/reglages.toml (seuil_distance_vertex).")
     return 0
 
 

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from assistant.agent import AssistantAgent, Bornes, FauxModeleAgent, ModeleAgent, VertexModeleAgent
 from assistant.config import RACINE, Reglages
 from assistant.corpus.ingestion import lire
 from assistant.embeddings import FauxEmbedder, VertexEmbedder
@@ -101,7 +102,50 @@ def parametres(r: Reglages) -> Parametres:
         site=r.site["url"],
         tarif_entree=float(r.tarifs["redaction_entree"]),
         tarif_sortie=float(r.tarifs["redaction_sortie"]),
-        versions={"modele": r.moteur["modele_redaction"], "corpus": r.corpus["version"]},
+        versions={
+            "modele": r.moteur["modele_redaction"],
+            "corpus": r.corpus["version"],
+            "branche": r.branche,
+        },
+    )
+
+
+def bornes(r: Reglages) -> Bornes:
+    a, d = r.agent, Bornes()
+    return Bornes(
+        max_appels_outils=int(a.get("max_appels_outils", d.max_appels_outils)),
+        max_tours=int(a.get("max_tours", d.max_tours)),
+        budget_jetons=int(a.get("budget_jetons", d.budget_jetons)),
+        caracteres_page=int(a.get("caracteres_page", d.caracteres_page)),
+    )
+
+
+def construire_modele_agent(r: Reglages) -> ModeleAgent:
+    """Branche A : meme modele, meme region, memes reglages que le redacteur de B."""
+    if r.mode == "local":
+        return FauxModeleAgent()
+    m = r.moteur
+    return VertexModeleAgent(
+        m["projet_gcp"],
+        m["region_redaction"],
+        m["modele_redaction"],
+        float(m["temperature"]),
+        str(m["reflexion"]),
+    )
+
+
+async def construire_recherche(r: Reglages, morceaux: list[Morceau]):
+    """Embedder et recherche seuls, sans la verification de demarrage : sert au
+    calage du seuil, qui doit tourner justement quand le seuil n'est pas cale."""
+    m = r.moteur
+    if r.mode == "local":
+        embedder = FauxEmbedder(int(m["dimensions"]))
+        return embedder, await RechercheMemoire.construire(morceaux, embedder)
+    embedder = VertexEmbedder(
+        m["projet_gcp"], m["region"], m["modele_embeddings"], int(m["dimensions"])
+    )
+    return embedder, RechercheFirestore(
+        m["projet_gcp"], r.corpus["collection"], r.corpus["version"]
     )
 
 
@@ -116,20 +160,16 @@ async def construire(
     lim = r.limites
     m = r.moteur
     if r.mode == "local":
-        embedder = FauxEmbedder(int(m["dimensions"]))
-        recherche = await RechercheMemoire.construire(morceaux, embedder)
+        embedder, recherche = await construire_recherche(r, morceaux)
         generateur = FauxGenerateur()
         compteur: CompteurQuotidien = CompteurMemoire()
         cle = r.secrets.get("session", "").encode() or secrets.token_bytes(32)
         journal_q: JournalQuestions = JournalMuet()
     else:
-        embedder = VertexEmbedder(
-            m["projet_gcp"], m["region"], m["modele_embeddings"], int(m["dimensions"])
-        )
-        recherche = RechercheFirestore(m["projet_gcp"], r.corpus["collection"], r.corpus["version"])
+        embedder, recherche = await construire_recherche(r, morceaux)
         generateur = VertexGenerateur(
             m["projet_gcp"],
-            m["region"],
+            m["region_redaction"],
             m["modele_redaction"],
             float(m["temperature"]),
             str(m["reflexion"]),
@@ -151,7 +191,19 @@ async def construire(
         if r.securite["compte_evaluation"]
         else IdentiteRefusee()
     )
-    assistant = Assistant(embedder, recherche, generateur, parametres(r), coordonnees)
+    assistant: Assistant
+    if r.branche == "agent":
+        assistant = AssistantAgent(
+            embedder,
+            recherche,
+            construire_modele_agent(r),
+            parametres(r),
+            coordonnees,
+            morceaux,
+            bornes(r),
+        )
+    else:
+        assistant = Assistant(embedder, recherche, generateur, parametres(r), coordonnees)
     return Composants(
         reglages=r,
         assistant=assistant,

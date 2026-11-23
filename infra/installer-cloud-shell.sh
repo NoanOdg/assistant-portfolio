@@ -56,7 +56,6 @@ id_proprietaire_github = "$ID_GITHUB"
 region                 = "$REGION"
 budget_mensuel         = 5
 devise                 = "$DEVISE"
-seuil_distance         = "-1"
 activer_gke            = false
 EOF
 cd "$PROD"

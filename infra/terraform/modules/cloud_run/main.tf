@@ -50,12 +50,6 @@ variable "modele_redaction" {
   default = "gemini-3.1-flash-lite"
 }
 
-variable "seuil_distance" {
-  description = "Seuil de refus cale par assistant-caler-seuil (-1 = non cale, le service refuse de demarrer)."
-  type        = string
-  default     = "-1"
-}
-
 variable "anti_robot" {
   type    = string
   default = "turnstile"
@@ -120,10 +114,6 @@ resource "google_cloud_run_v2_service" "assistant" {
       env {
         name  = "ASSISTANT_MOTEUR_MODELE_REDACTION"
         value = var.modele_redaction
-      }
-      env {
-        name  = "ASSISTANT_RECHERCHE_SEUIL_DISTANCE_VERTEX"
-        value = var.seuil_distance
       }
       env {
         name  = "ASSISTANT_SECURITE_ANTI_ROBOT"

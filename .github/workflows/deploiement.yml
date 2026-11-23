@@ -49,21 +49,21 @@ jobs:
       ASSISTANT_MOTEUR_PROJET_GCP: ${{ vars.GCP_PROJET }}
       ASSISTANT_MOTEUR_REGION: europe-west1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
       - run: uv sync --frozen --extra gcp
 
       - id: auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_FOURNISSEUR }}
           service_account: ${{ secrets.GCP_COMPTE_DEPLOIEMENT }}
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
 
       - name: Versions
         id: v
@@ -98,7 +98,7 @@ jobs:
       - name: Revision candidate, sans trafic
         run: |
           gcloud run deploy "$SERVICE" --image "${{ steps.v.outputs.image }}" \
-            --region "$REGION" --no-traffic --tag candidate \
+            --region "$REGION" --no-traffic --tag candidate             --remove-env-vars ASSISTANT_RECHERCHE_SEUIL_DISTANCE_VERTEX \
             --labels "corpus=${{ steps.v.outputs.corpus }},commit=${GITHUB_SHA::7}" --quiet
           URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json \
                 | jq -r '.status.traffic[] | select(.tag=="candidate") | .url')
@@ -106,7 +106,7 @@ jobs:
 
       - id: jeton
         name: Jeton d'identite de l'evaluation
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_FOURNISSEUR }}
           service_account: ${{ secrets.GCP_COMPTE_DEPLOIEMENT }}
@@ -128,7 +128,7 @@ jobs:
 
       - name: Resultats de l'evaluation
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: evaluation-${{ github.sha }}
           path: build/eval-candidate.json
