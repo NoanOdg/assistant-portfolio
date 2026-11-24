@@ -42,6 +42,13 @@ resource "google_firestore_index" "langue_vecteur" {
     order      = "ASCENDING"
   }
 
+  # Firestore ajoute __name__ avant le champ vectoriel : l'ecrire evite un
+  # remplacement de l'index a chaque apply (vu le 24/11/2026).
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+
   fields {
     field_path = "embedding"
     vector_config {
@@ -64,6 +71,13 @@ resource "google_firestore_index" "langue_projet_vecteur" {
 
   fields {
     field_path = "projet"
+    order      = "ASCENDING"
+  }
+
+  # Firestore ajoute __name__ avant le champ vectoriel : l'ecrire evite un
+  # remplacement de l'index a chaque apply (vu le 24/11/2026).
+  fields {
+    field_path = "__name__"
     order      = "ASCENDING"
   }
 
