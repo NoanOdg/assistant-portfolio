@@ -110,6 +110,10 @@ prefiltre_seuil = false
 caracteres_question = 500
 jetons_reponse = 450
 delai_reponse_s = 30
+# Sans premier mot du modele apres ce delai, l'appel est rejoue (une fois) :
+# une reponse normale commence en 1 s environ (mesure du 24/11/2026).
+delai_premier_mot_s = 8
+relances_premier_mot = 1
 questions_par_minute = 5
 questions_par_jour_visiteur = 30
 questions_par_jour_global = 60

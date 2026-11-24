@@ -21,6 +21,7 @@ reproduisent le service tel qu'il etait servi.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import hashlib
 import re
@@ -69,6 +70,12 @@ class Parametres:
     passages: int = 6
     jetons_reponse: int = 450
     delai_s: float = 30
+    # Premier fragment du modele attendu au plus delai_premier_s ; sinon l'appel
+    # est annule et rejoue (relances_premier fois). Rien n'est encore affiche,
+    # donc la relance est invisible. Vu le 24/11/2026 : 3 questions sur 40 sans
+    # un mot en 30 s sur Vertex, contre environ 1 s d'habitude.
+    delai_premier_s: float = 8
+    relances_premier: int = 1
     domaines: tuple[str, ...] = ("noan-ouedraogo.dev", "linkedin.com")
     site: str = "https://noan-ouedraogo.dev"
     # Dollars par million de jetons du modele de redaction.
@@ -290,6 +297,26 @@ class Assistant:
         refus = not passages or (self.p.appliquer_seuil and d > self.p.seuil_distance)
         return passages, refus
 
+    async def _rediger(self, bilan, *args, **kwargs):
+        """Flux du modele, rejoue si le premier fragment tarde (voir delai_premier_s)."""
+        for essai in range(self.p.relances_premier + 1):
+            flux = self.generateur.rediger(*args, **kwargs).__aiter__()
+            try:
+                premier = await asyncio.wait_for(anext(flux), self.p.delai_premier_s)
+            except TimeoutError:
+                with contextlib.suppress(Exception):
+                    await flux.aclose()
+                if essai == self.p.relances_premier:
+                    raise
+                bilan.appels_modele += 1
+                continue
+            except StopAsyncIteration:
+                return
+            yield premier
+            async for frag in flux:
+                yield frag
+            return
+
     async def repondre(
         self, question: str, langue: str, diagnostic: bool = False
     ) -> AsyncIterator[Evenement]:
@@ -364,7 +391,8 @@ class Assistant:
 
         try:
             async with asyncio.timeout(self.p.delai_s):
-                async for frag in self.generateur.rediger(
+                async for frag in self._rediger(
+                    bilan,
                     self.consigne,
                     contenu,
                     self.p.jetons_reponse,

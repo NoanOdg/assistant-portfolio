@@ -117,6 +117,8 @@ def parametres(r: Reglages) -> Parametres:
         passages=int(r.recherche["passages"]),
         jetons_reponse=int(r.limites["jetons_reponse"]),
         delai_s=float(r.limites["delai_reponse_s"]),
+        delai_premier_s=float(r.limites.get("delai_premier_mot_s", 8)),
+        relances_premier=int(r.limites.get("relances_premier_mot", 1)),
         domaines=tuple(r.securite["domaines_autorises"]),
         site=r.site["url"],
         tarif_entree=tarif["entree"],

@@ -107,3 +107,35 @@ async def test_la_consigne_est_versionnee(fabriquer_assistant):
     a = await fabriquer_assistant()
     assert "[REFUS]" in a.consigne
     assert len(a.version_consigne) == 12
+
+
+class GenerateurMuet(FauxGenerateur):
+    """Les `lents` premiers appels ne rendent rien pendant `attente` secondes."""
+
+    def __init__(self, lents: int, attente: float) -> None:
+        super().__init__()
+        self.lents = lents
+        self.attente = attente
+
+    async def rediger(self, consigne, contenu, max_jetons, schema=None):
+        if len(self.appels) < self.lents:
+            self.appels.append({"lent": True})
+            await asyncio.sleep(self.attente)
+        async for f in super().rediger(consigne, contenu, max_jetons, schema):
+            yield f
+
+
+async def test_premier_mot_trop_lent_rejoue_une_fois(fabriquer_assistant):
+    gen = GenerateurMuet(lents=1, attente=5)
+    a = await fabriquer_assistant(generateur=gen, delai_premier_s=0.05, delai_s=2)
+    evts = await evenements(a, "Quel taux de détection des pannes le moniteur atteint-il ?")
+    assert fin(evts)["chemin"] == "reponse"
+    assert len(gen.appels) == 2
+
+
+async def test_premier_mot_toujours_lent_finit_en_delai(fabriquer_assistant):
+    gen = GenerateurMuet(lents=5, attente=5)
+    a = await fabriquer_assistant(generateur=gen, delai_premier_s=0.05, delai_s=2)
+    evts = await evenements(a, "Quel taux de détection des pannes le moniteur atteint-il ?")
+    assert fin(evts)["chemin"] == "delai"
+    assert len(gen.appels) == 2
