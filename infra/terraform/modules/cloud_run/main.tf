@@ -164,7 +164,8 @@ resource "google_cloud_run_v2_service" "assistant" {
   lifecycle {
     ignore_changes = [
       template[0].containers[0].image,
-      template[0].revision,
+      # Pas template[0].revision : ignore, Terraform renverrait le nom de la
+      # derniere revision de la CI et Cloud Run refuserait (409, vu le 24/11/2026).
       template[0].labels,
       traffic,
       client,
