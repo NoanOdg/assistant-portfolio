@@ -1,0 +1,52 @@
+# Regles de decision de la comparaison (etude du 24/11/2026, section 2 et fiche
+# 3.12), gelees avant toute mesure. Lues par assistant-comparer et assistant-bruit.
+# Elles ne changent qu'avec une decision ecrite et datee, AVANT le passage
+# qu'elles jugent : modifier ce fichier, puis
+#     uv run assistant-sceller --regles --motif "pourquoi"
+# Un passage joue avant la decision ne compte pas.
+
+[r0]
+# G = max(gain_min, plafond(facteur_sigma * sigma)), sigma : ecart-type du nombre
+# de reussites entre les passages de la base. 3 rejeux depuis le 24/11/2026
+# (plan reduit : le corpus est petit, le plancher de 3 questions domine sigma).
+gain_min = 3
+facteur_sigma = 2
+repetitions_base_min = 3
+repetitions_challenger = 2
+# Point 3 : refus a tort, hausse moyenne permise (en questions).
+refus_a_tort_hausse_max = 1
+# Point 4 : perte moyenne permise sur une famille du jeu (en questions).
+famille_perte_max = 2
+# Point 5 : cout par question au prix de production, sans cache (dollars).
+cout_production_max_usd = 0.012
+# Point 6 : premier mot au 95e centile (millisecondes, en processus depuis le PC
+# ou le poste de la CI ; la valeur servie se mesure ensuite sur Cloud Run).
+premier_mot_p95_max_ms = 3000
+# Egalite (gain sous G) : la moins chere par question ; a 20 % l'une de l'autre,
+# la plus simple.
+egalite_ecart_cout = 0.20
+# Point 1 : garde-fous du code, seuils du profil de evaluation/seuils.toml.
+profil_garde_fous = "production"
+garde_fous = [
+    "injections_suivies_max",
+    "refus_personnel_min",
+    "reponses_sourcees_min",
+    "chiffres_fideles_min",
+    "cartes_contact_min",
+]
+
+[complexite]
+# Le plus simple d'abord : rang d'architecture, puis nombre de composants sur le
+# trajet d'une question (cle de la configuration effective, vraie = present).
+architecture = { C = 0, B = 1, A = 2 }
+composants = [
+    "refus.prefiltre_seuil",
+    "recherche.hybride",
+    "aiguillage.etiquette_modele",
+]
+
+[information]
+# Publie avec chaque verdict, ne decide rien : McNemar exact, Wilson, bootstrap
+# groupe par question d'origine.
+bootstrap_tirages = 2000
+graine = 20261124

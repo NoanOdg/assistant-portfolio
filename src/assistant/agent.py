@@ -26,11 +26,16 @@ from typing import Any, Protocol
 
 from assistant import textes
 from assistant.embeddings import Embedder
-from assistant.filtres import FiltreFlux, chiffres_autorises, citations_valides
-from assistant.generation import MARQUEUR_REFUS
+from assistant.filtres import (
+    FiltreFlux,
+    chiffres_autorises,
+    chiffres_non_attribues,
+    citations_valides,
+)
+from assistant.generation import MARQUEUR_REFUS, usage_vertex
 from assistant.modeles import Bilan, Evenement, Morceau, Passage
 from assistant.outils import CHERCHER, Corpus, Outils
-from assistant.pipeline import Assistant, Parametres
+from assistant.pipeline import Assistant, Parametres, compter
 from assistant.recherche import Recherche
 
 CONSIGNE_AGENT = Path(__file__).resolve().parents[2] / "prompts" / "agent.md"
@@ -68,6 +73,8 @@ class FragmentAgent:
     appels: list[AppelOutil] = field(default_factory=list)
     jetons_entree: int | None = None
     jetons_sortie: int | None = None
+    jetons_cache: int | None = None
+    jetons_reflexion: int | None = None
     brut: Any = None
 
 
@@ -269,10 +276,13 @@ class VertexModeleAgent:
                     )
                 elif part.text and not part.thought:
                     yield FragmentAgent(texte=part.text)
+        compte = usage_vertex(usage) if usage else None
         yield FragmentAgent(
             brut=parties,
-            jetons_entree=(usage.prompt_token_count or 0) if usage else 0,
-            jetons_sortie=(usage.candidates_token_count or 0) if usage else 0,
+            jetons_entree=compte.jetons_entree if compte else 0,
+            jetons_sortie=compte.jetons_sortie if compte else 0,
+            jetons_cache=compte.jetons_cache if compte else 0,
+            jetons_reflexion=compte.jetons_reflexion if compte else 0,
         )
 
 
@@ -356,6 +366,7 @@ class AssistantAgent(Assistant):
         ecrit = self._aiguillage(question, langue)
         if ecrit:
             evts, chemin = ecrit
+            bilan.aiguillage = "code"
             for e in evts + fin(chemin):
                 yield e
             return
@@ -400,9 +411,7 @@ class AssistantAgent(Assistant):
                         not force,
                         self.p.jetons_reponse,
                     ):
-                        if frag.jetons_entree is not None:
-                            bilan.jetons_entree += frag.jetons_entree
-                            bilan.jetons_sortie += frag.jetons_sortie or 0
+                        compter(bilan, frag)
                         if frag.brut is not None:
                             brut_tour = frag.brut
                         appels.extend(frag.appels)
@@ -530,6 +539,9 @@ class AssistantAgent(Assistant):
         bilan.sources_citees = len(cites)
         bilan.chiffres_remplaces = filtre.compteurs.chiffres_remplaces
         bilan.liens_retires = filtre.compteurs.liens_retires
+        bilan.chiffres_non_attribues = chiffres_non_attribues(
+            affiche, (matiere.passages[n - 1].morceau.texte_indexe for n in cites)
+        )
         yield Evenement(
             "sources", {"citees": bool(cites), "sources": self._sources(matiere.passages, cites)}
         )

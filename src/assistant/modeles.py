@@ -85,13 +85,21 @@ class Bilan:
     chemin: str = ""
     passages: int = 0
     meilleure_distance: float | None = None
-    jetons_entree: int = 0
-    jetons_sortie: int = 0
-    cout_usd: float = 0.0
+    jetons_entree: int = 0  # entree facturee, jetons lus dans le cache compris
+    jetons_sortie: int = 0  # reponse, sans la reflexion
+    jetons_cache: int = 0  # part de l'entree lue dans le cache implicite
+    jetons_reflexion: int = 0  # facturee au prix de la sortie
+    cout_usd: float = 0.0  # cout reel, remise du cache comprise
+    cout_production_usd: float = 0.0  # meme question, sans cache (plafond de la regle R0)
     premier_mot_ms: float | None = None
     duree_ms: float = 0.0
     chiffres_remplaces: int = 0
     liens_retires: int = 0
     sources_citees: int = 0
+    # Chiffres affiches absents de tous les passages cites (mesure 10c, non bloquante).
+    chiffres_non_attribues: int = 0
     appels_modele: int = 0
     appels_outils: int = 0  # branche A seulement
+    # Qui a aiguille : "code" (mots-cles), "modele" (etiquette en sortie structuree).
+    aiguillage: str = ""
+    intention: str = ""  # etiquette lue dans la sortie du modele, si demandee

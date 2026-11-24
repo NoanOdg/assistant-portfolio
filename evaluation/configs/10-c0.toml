@@ -1,0 +1,8 @@
+# Etape 1 : C0, tout le corpus de la langue dans le contenu, meme modele, meme
+# consigne v1, passages avant la question (D1 corrige : le cache implicite
+# joue), renvois a trois chiffres (D2, toujours actif). Joue 2 fois.
+[recherche]
+mode = "tout_le_corpus"
+
+[moteur]
+ordre_contenu = "passages_d_abord"

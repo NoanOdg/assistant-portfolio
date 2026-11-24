@@ -1,0 +1,5 @@
+# Si B gagne l'etape 1 : recherche hybride BM25 + KNN, fusion RRF k = 60 (option 4b).
+# D'abord hors ligne : assistant-rappel.
+[recherche]
+hybride = true
+k_rrf = 60

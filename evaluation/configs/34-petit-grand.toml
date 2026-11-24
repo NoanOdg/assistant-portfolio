@@ -1,0 +1,3 @@
+# Si B gagne : morceaux de 360 mots pour chercher, page entiere pour lire (option 2d).
+[corpus]
+decoupage = "petit_grand"

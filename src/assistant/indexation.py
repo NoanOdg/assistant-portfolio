@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from assistant.corpus.ingestion import GardeSuppression, lire
+from assistant.corpus.servi import empreinte_corpus, selon_reglages
 from assistant.embeddings import Embedder
 from assistant.modeles import Morceau
 
@@ -105,33 +107,59 @@ async def indexer(
     nouveaux = []
     for i in range(0, len(a_vectoriser), lot):
         paquet = a_vectoriser[i : i + lot]
-        vecteurs = await embedder.vectoriser([m.texte_indexe for m in paquet], "document")
+        vecteurs = await embedder.vectoriser(
+            [m.texte_indexe for m in paquet], "document", [m.titre for m in paquet]
+        )
         nouveaux.extend(zip(paquet, vecteurs, strict=True))
     await magasin.ecrire(version, repris + nouveaux)
     return BilanIndexation(len(morceaux), len(nouveaux), len(repris), part)
 
 
+def version_auto(r, morceaux: list[Morceau]) -> str:
+    """Version Firestore tiree du corpus servi et des reglages d'embedding : deux
+    passages de comparaison sur le meme corpus partagent la meme version (aucun
+    vecteur recalcule), une variante d'embedding ou de corpus en a une neuve."""
+    m = r.moteur
+    cle = "|".join(
+        [
+            empreinte_corpus(morceaux),
+            str(m["modele_embeddings"]),
+            str(m["dimensions"]),
+            str(bool(m.get("titre_document", False))),
+        ]
+    )
+    return "eval-" + hashlib.sha256(cle.encode()).hexdigest()[:12]
+
+
 def main(argv: list[str] | None = None) -> int:
     from assistant import config
-    from assistant.embeddings import VertexEmbedder
+    from assistant.fabrique import construire_embedder
 
     p = argparse.ArgumentParser(description="Vectorise le corpus dans une version Firestore.")
     p.add_argument("--corpus", type=Path, default=Path("build/corpus.jsonl"))
-    p.add_argument("--version", required=True)
-    p.add_argument("--precedente")
-    a = p.parse_args(argv)
-    r = config.charger()
-    m = r.moteur
-    embedder = VertexEmbedder(
-        m["projet_gcp"], m["region"], m["modele_embeddings"], int(m["dimensions"])
+    p.add_argument(
+        "--version",
+        required=True,
+        help="version a ecrire ; auto : tiree du corpus servi et des reglages d'embedding",
     )
-    magasin = MagasinFirestore(m["projet_gcp"], r.corpus["collection"])
+    p.add_argument("--precedente")
+    p.add_argument(
+        "--config", type=Path, action="append", default=[], help="fichier superpose (repetable)"
+    )
+    a = p.parse_args(argv)
+    r = config.charger(superpositions=a.config)
+    morceaux = selon_reglages(lire(a.corpus), r.corpus)
+    version = version_auto(r, morceaux) if a.version == "auto" else a.version
+    precedente = a.precedente or (version if a.version == "auto" else None)
+    embedder = construire_embedder(r)
+    magasin = MagasinFirestore(r.moteur["projet_gcp"], r.corpus["collection"])
     try:
-        bilan = asyncio.run(indexer(lire(a.corpus), embedder, magasin, a.version, a.precedente))
+        bilan = asyncio.run(indexer(morceaux, embedder, magasin, version, precedente))
     except GardeSuppression as e:
         print(f"ECHEC : {e}", file=sys.stderr)
         return 2
-    print(f"version {a.version} : {bilan}")
+    print(f"version {version} : {bilan}")
+    print(f"version={version}")
     return 0
 
 

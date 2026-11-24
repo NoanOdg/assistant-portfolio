@@ -4,7 +4,11 @@
     assistant-ingerer --source site --site https://noan-ouedraogo.dev
 
 Garde : si plus de 30 % des morceaux du corpus precedent disparaissent d'un
-coup, rien n'est ecrit et la commande echoue (code 2).
+coup, rien n'est ecrit et la commande echoue (code 2). Controle bloquant : un
+telephone, un courriel ou un code postal dans le corpus construit, rien n'est
+ecrit non plus (code 3).
+
+Decoupage : `[corpus] decoupage` des reglages, ou --decoupage (fiche 3.2 de l'etude).
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from collections import Counter
 from pathlib import Path
 
 from assistant.corpus.decoupage import decouper
+from assistant.corpus.servi import CoordonneeTrouvee, controler_coordonnees, empreinte_corpus
 from assistant.modeles import Morceau
 
 PART_SUPPRESSION_MAX = 0.30
@@ -25,11 +30,11 @@ class GardeSuppression(RuntimeError):
     pass
 
 
-def construire(source) -> tuple[list[Morceau], dict]:
+def construire(source, decoupage: str = "mots360") -> tuple[list[Morceau], dict]:
     morceaux: list[Morceau] = []
     vus: Counter[str] = Counter()
     for page in source.pages():
-        for m in decouper(page):
+        for m in decouper(page, mode=decoupage):
             vus[m.id] += 1
             if vus[m.id] > 1:  # deux sections homonymes : identifiant rendu unique
                 m = Morceau(**{**m.vers_dict(), "id": f"{m.id}-{vus[m.id]}"})
@@ -75,7 +80,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--site", default="https://noan-ouedraogo.dev")
     p.add_argument("--sortie", type=Path, default=Path("build/corpus.jsonl"))
     p.add_argument("--forcer", action="store_true", help="ignorer la garde des 30 %")
+    p.add_argument(
+        "--decoupage",
+        choices=["mots360", "section", "page", "petit_grand"],
+        help="defaut : [corpus] decoupage des reglages",
+    )
     a = p.parse_args(argv)
+    if a.decoupage is None:
+        from assistant import config
+
+        a.decoupage = config.charger().corpus.get("decoupage", "mots360")
 
     if a.source == "mdx":
         if not a.contenu:
@@ -88,7 +102,12 @@ def main(argv: list[str] | None = None) -> int:
 
         source = SourceSite(a.site)
 
-    morceaux, coord = construire(source)
+    morceaux, coord = construire(source, a.decoupage)
+    try:
+        controler_coordonnees(morceaux)
+    except CoordonneeTrouvee as e:
+        print(f"ECHEC : {e}", file=sys.stderr)
+        return 3
     try:
         part = verifier_suppressions(
             lire(a.sortie), morceaux, 1.0 if a.forcer else PART_SUPPRESSION_MAX
@@ -98,7 +117,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     ecrire(morceaux, coord, a.sortie)
     par_langue = Counter(m.langue for m in morceaux)
-    print(f"{len(morceaux)} morceaux ({dict(par_langue)}), {part:.0%} supprimes, -> {a.sortie}")
+    par_type = Counter(m.type for m in morceaux)
+    print(
+        f"{len(morceaux)} morceaux ({dict(par_langue)}, {dict(par_type)}), "
+        f"decoupage {a.decoupage}, {part:.0%} supprimes, empreinte "
+        f"{empreinte_corpus(morceaux)} -> {a.sortie}"
+    )
     return 0
 
 

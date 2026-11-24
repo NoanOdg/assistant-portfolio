@@ -1,0 +1,4 @@
+# Etape 2.5 (jouee en premier dans l'etape 2) : page Contact servie, coordonnees
+# retirees (option 1b). A superposer a la gagnante de l'etape 1.
+[corpus]
+inclure_contact = true

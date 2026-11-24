@@ -12,6 +12,8 @@ TEXTES = {
         "santé, nationalité, vie privée). Noan y répondra directement : "
         "la page Contact permet de lui écrire.",
         "contact": "Voici les coordonnées de Noan et les liens vers ses CV.",
+        "contact_telephone": "Aucun numéro de téléphone n'est publié. Voici le courriel de "
+        "Noan, son LinkedIn et les liens vers ses CV.",
         "plafond_visiteur": "Vous avez atteint la limite de questions pour le moment. "
         "Réessayez dans une minute, ou consultez le CV.",
         "plafond_global": "L'assistant a atteint son plafond de questions pour aujourd'hui. "
@@ -31,6 +33,8 @@ TEXTES = {
         "nationality, private life). Noan will answer them directly: "
         "the Contact page lets you write to him.",
         "contact": "Here are Noan's contact details and links to his resumes.",
+        "contact_telephone": "No phone number is published. Here are Noan's email, "
+        "his LinkedIn and links to his resumes.",
         "plafond_visiteur": "You have reached the question limit for now. "
         "Try again in a minute, or read the resume.",
         "plafond_global": "The assistant has reached its question cap for today. "

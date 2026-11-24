@@ -24,7 +24,8 @@ IMAGE_MD = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 LIEN_MD = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
 URL = re.compile(r"https?://[^\s)\]>]*[^\s)\]>.,;:!?]")
 HTML = re.compile(r"</?[A-Za-z][^>]*>")
-CITATION = re.compile(r"\[(\d{1,2})\]")
+# Trois chiffres : en tout_le_corpus, un renvoi va jusqu'a [178] et plus (defaut D2).
+CITATION = re.compile(r"\[(\d{1,3})\]")
 
 
 def formes(nombre: str) -> set[str]:
@@ -140,6 +141,17 @@ class FiltreFlux:
     def terminer(self) -> str:
         sortie, self._tampon = self._tampon, ""
         return self._nettoyer(sortie)
+
+
+def chiffres_non_attribues(texte: str, passages_cites: Iterable[str]) -> int:
+    """Chiffres affiches absents de tous les passages cites (mesure 10c).
+
+    Le filtre en flux garantit qu'un chiffre affiche existe dans les passages
+    transmis ; en tout_le_corpus, c'est tout le site (defaut D3). Cette mesure
+    dit en plus si le chiffre vient bien d'un passage que la reponse cite.
+    Non bloquante : le texte est deja affiche quand on la calcule."""
+    autorises = chiffres_autorises(passages_cites)
+    return sum(1 for mo in NOMBRE.finditer(texte) if not formes(mo.group(0)) & autorises)
 
 
 def citations_valides(texte: str, nb_passages: int) -> list[int]:

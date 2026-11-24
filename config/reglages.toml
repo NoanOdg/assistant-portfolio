@@ -21,8 +21,24 @@ modele_redaction = "gemini-3.1-flash-lite"   # verifie en eu le 23/11/2026
 modele_embeddings = "gemini-embedding-001"
 dimensions = 768
 # Niveau de reflexion du modele de redaction (vide = valeur par defaut du modele).
+# Verifie contre [modeles."<id>"].reflexions : 3.8 Flash refuse "minimal".
 reflexion = "minimal"
 temperature = 0.2
+# Consigne de redaction : "v1" (prompts/redaction.md, servie) ou "v2"
+# (prompts/redaction-v2.md, par classes d'erreurs : etude, fiche 3.9).
+consigne = "v1"
+# Contenu envoye au modele. "question_d_abord" : format servi (question, puis
+# passages numerotes). "passages_d_abord" : passages, date, question, chacun
+# entre balises declarees donnees ; le prefixe commun permet au cache implicite
+# de jouer (defaut D1 de l'etude). Obligatoire en tout_le_corpus.
+ordre_contenu = "question_d_abord"
+# Date du jour donnee au modele, apres les passages (defaut D7).
+date_du_jour = false
+# Embeddings : type de tache des questions ("RETRIEVAL_QUERY" servi, ou
+# "QUESTION_ANSWERING", fiche 3.3, option 3b) et titre de la page passe avec
+# chaque document (option 3c). Changer l'un ou l'autre oblige a recaler le seuil.
+tache_question = "RETRIEVAL_QUERY"
+titre_document = false
 
 [corpus]
 # Fichier produit par assistant-ingerer. Le mode local l'indexe en memoire au demarrage.
@@ -30,9 +46,28 @@ fichier = "build/corpus.jsonl"
 # Version servie : fixee par la CI au deploiement de chaque revision.
 version = "local"
 collection = "corpus"
+# Decoupage (fiche 3.2) : "mots360" (servi, sections coupees au-dela de 360
+# mots), "section" (section entiere), "page" (page entiere), "petit_grand"
+# (morceaux de 360 mots pour chercher, page entiere pour lire). Lu par
+# assistant-ingerer ; "petit_grand" joue aussi a la lecture.
+decoupage = "mots360"
+# Texte de la page Contact, coordonnees retirees (option 1b). Toujours ingere
+# (type "contact"), servi seulement si vrai.
+inclure_contact = false
+# Corpus compact (option 1c) : un chiffre deja ecrit dans la prose de sa page
+# ne reparait pas dans une fiche "metrique" de la meme page.
+compact = false
 
 [recherche]
+# "rag" : passages trouves par la recherche (B, servi). "tout_le_corpus" : tout
+# le site de la langue dans le contenu (C) ; la distance du meilleur passage est
+# quand meme calculee et journalisee (defaut D10).
+mode = "rag"
 passages = 6
+# Recherche hybride (option 4b) : BM25 en memoire et KNN, fusion RRF.
+hybride = false
+k_rrf = 60
+candidats_hybride = 20
 # Distance cosinus (1 - similarite). Au-dessus pour le meilleur passage : refus
 # ecrit d'avance, sans appeler le modele. Valeur locale calee sur le faux
 # embedder avec assistant-caler-seuil. Valeur Vertex : workflow GitHub "Calage du
@@ -53,6 +88,24 @@ budget_jetons = 30000
 # Texte rendu par lire_page, au plus (la page est coupee entre deux sections).
 caracteres_page = 12000
 
+[aiguillage]
+# "v1" : mots-cles servis. "classes" : tolerance d'une faute sur les mots de
+# contact, telephone vers la carte avec un texte dedie, lexique de remuneration
+# (fiche 3.6, option 6b). Mesure sur le banc evaluation/aiguillage.yaml.
+# Par defaut depuis le 24/11/2026 : corrige trois familles d'erreurs connues des
+# garde-fous du code (15 tournures sur 16 contre 11, aucun faux positif), sans
+# quoi aucune configuration ne peut passer la condition 1 de la regle R0.
+version = "classes"
+# Sortie structuree du modele : intention (contact, personnel, question,
+# hors_sujet) puis reponse. La carte et les refus restent rendus par le code
+# (option 6c). Les mots-cles du code passent avant, comme raccourci.
+etiquette_modele = false
+
+[refus]
+# Tout_le_corpus seulement : refus ecrit d'avance si le meilleur passage est
+# au-dessus du seuil, sans appeler le modele (option 7c).
+prefiltre_seuil = false
+
 [limites]
 caracteres_question = 500
 jetons_reponse = 450
@@ -64,9 +117,19 @@ questions_par_jour_evaluation = 150
 duree_session_s = 1800
 
 [securite]
-origines = ["https://noan-ouedraogo.dev", "https://www.noan-ouedraogo.dev"]
-# "desactive" en local ; "turnstile" en production.
-anti_robot = "desactive"
+# CORS : seules ces origines peuvent appeler le service depuis un navigateur.
+origines = ["https://noan-ouedraogo.dev"]
+# Apercus Cloudflare Pages : https://<empreinte ou branche>.<projet>.pages.dev
+# (et l'alias https://<projet>.pages.dev). Nom du projet Pages du portfolio,
+# a recopier du tableau de bord Cloudflare ; vide = aucun apercu autorise.
+projet_pages = "portfolio-hnq"
+# Essais locaux du site (astro dev et astro preview). Pour les fermer en
+# production : ASSISTANT_SECURITE_ORIGINES_LOCALES="" .
+origines_locales = ["http://localhost:4321"]
+# "altcha" : defi ALTCHA verifie a l'ouverture de session (production, et local
+# avec une cle tiree au demarrage si ASSISTANT_SECRET_ALTCHA est vide).
+# "desactive" : toute solution passe (mesures de charge seulement).
+anti_robot = "altcha"
 domaines_autorises = ["noan-ouedraogo.dev", "linkedin.com"]
 # Compte de service autorise a jouer l'evaluation sur la revision candidate.
 compte_evaluation = ""
@@ -77,16 +140,48 @@ audience_evaluation = "assistant-portfolio-evaluation"
 # A verifier au jour 1 sur Cloud Run.
 rang_ip_depuis_la_fin = 1
 
+[altcha]
+# Preuve de travail v2 de la bibliotheque altcha : trouver un compteur dont la
+# cle derivee (PBKDF2/SHA-256, `cout` iterations) commence par `prefixe` (hexa).
+# "00" : 256 essais en moyenne (duree sur telephone : a mesurer sur le widget).
+# Verification : une seule derivation. Defi signe par HMAC-SHA-256 (cle dans
+# Secret Manager), valable `expiration_s` secondes, utilisable une seule fois.
+algorithme = "PBKDF2/SHA-256"
+cout = 5000
+prefixe = "00"
+expiration_s = 120
+
 [journal]
 # Texte des questions garde 30 jours (TTL Firestore) pour enrichir le jeu d'evaluation.
 garder_questions = false
 duree_questions_jours = 30
 
 [tarifs]
-# Dollars par million de jetons (conception, 19/11/2026). A confirmer dans la console.
-redaction_entree = 0.25
-redaction_sortie = 1.50
+# Dollars par million de jetons. Prix des modeles de redaction et du juge : table
+# [modeles] ci-dessous. A confirmer sur la premiere facture (etude, section 8).
 embeddings = 0.15
+
+# Un modele par table : prix en dollars par million de jetons (API Gemini, lus
+# le 24/11/2026) pour l'entree, la sortie (reflexion comprise, facturee en
+# sortie) et l'entree lue dans le cache ; niveaux de reflexion permis.
+[modeles."gemini-3.1-flash-lite"]
+entree = 0.25
+sortie = 1.50
+cache = 0.025
+reflexions = ["minimal", "low", "medium", "high"]
+
+[modeles."gemini-3.5-flash-lite"]
+entree = 0.30
+sortie = 2.50
+cache = 0.03
+reflexions = ["minimal", "low", "medium", "high"]
+
+# Prix de decembre 2026 ; ils doublent au 01/01/2027 (1,50 / 7,50 / 0,15).
+[modeles."gemini-3.8-flash"]
+entree = 0.75
+sortie = 3.75
+cache = 0.075
+reflexions = ["low", "medium", "high"]
 
 [site]
 url = "https://noan-ouedraogo.dev"

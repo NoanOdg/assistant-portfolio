@@ -6,6 +6,7 @@ from collections import Counter
 
 import httpx
 import pytest
+import yaml
 
 from assistant.api import creer_app
 from assistant.evaluation import jeu, sceller
@@ -272,7 +273,15 @@ def test_resceller_la_seule_consigne_du_juge(tmp_path, monkeypatch):
 def test_brouillons_du_jeu_v2():
     travail = jeu.charger(jeu.JEU_V2_BROUILLON)
     reserve = jeu.charger(jeu.RESERVE_V2_BROUILLON)
-    assert 65 <= len(travail) <= 80 and 12 <= len(reserve) <= 18
+    # 100 et 100, decoupage de l'INSEI : 65 a repondre, 35 a refuser par lot.
+    assert len(travail) == 100 and len(reserve) == 100
+    for lot in (travail, reserve):
+        assert sum(1 for q in lot if q.a_repondre) == 65
+        assert Counter(q.famille for q in lot)["incomprehensible"] == 4
+    # Reserve : chaque question vise un fait ou un piege different.
+    brut = yaml.safe_load(jeu.RESERVE_V2_BROUILLON.read_text(encoding="utf-8"))
+    cibles = [d["cible"] for d in brut]
+    assert len(set(cibles)) == len(cibles) == 100
     tout = travail + reserve
     assert all(q.a_valider for q in tout)  # rien n'est valide ni scelle
     assert not {q.id for q in travail} & {q.id for q in reserve}

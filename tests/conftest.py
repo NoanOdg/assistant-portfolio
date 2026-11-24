@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import altcha
 import pytest
 
 from assistant import config
@@ -27,9 +28,32 @@ def corpus_exemple(source_exemple):
     return construire(source_exemple)
 
 
+# Cout ALTCHA reduit pour la vitesse des tests ; test_altcha.py joue aussi les
+# reglages reels.
+ENV_TEST = {"ASSISTANT_ALTCHA_COUT": "10"}
+
+
 @pytest.fixture
 def reglages_test(tmp_path):
-    return config.charger(env={"ASSISTANT_CORPUS_FICHIER": str(tmp_path / "corpus.jsonl")})
+    return config.charger(
+        env={**ENV_TEST, "ASSISTANT_CORPUS_FICHIER": str(tmp_path / "corpus.jsonl")}
+    )
+
+
+def resoudre(defi: dict) -> str:
+    """Ce que fait le widget : resoudre le defi, encoder la charge en base64."""
+    challenge = altcha.Challenge.from_dict(defi)
+    solution = altcha.solve_challenge(challenge, timeout=30)
+    assert solution is not None
+    return altcha.Payload(challenge, solution).to_base64()
+
+
+def ouvrir_session(client) -> str:
+    """GET /defi, resolution, POST /session : rend le jeton de session."""
+    charge = resoudre(client.get("/defi").json())
+    r = client.post("/session", json={"altcha": charge})
+    assert r.status_code == 200, r.text
+    return r.json()["session"]
 
 
 @pytest.fixture

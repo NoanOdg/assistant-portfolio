@@ -1,0 +1,4 @@
+# Etape 2.2 : etiquette d'intention du modele en sortie structuree (option 6c).
+# La carte et les refus restent rendus par le code.
+[aiguillage]
+etiquette_modele = true

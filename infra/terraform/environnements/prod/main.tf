@@ -62,7 +62,7 @@ module "service" {
   compte_deploiement = module.comptes.deploiement_email
   compte_evaluation  = module.comptes.deploiement_email
   secret_session     = module.secrets.ids["assistant-cle-session"]
-  secret_turnstile   = module.secrets.ids["assistant-turnstile"]
+  secret_altcha      = module.secrets.ids["assistant-cle-altcha"]
   modele_redaction   = var.modele_redaction
   protection         = var.protection
   # Les valeurs des secrets doivent exister avant la premiere revision (README).

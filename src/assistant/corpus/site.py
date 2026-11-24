@@ -17,11 +17,27 @@ import httpx
 from bs4 import BeautifulSoup, Tag
 
 from assistant.corpus.mdx import nettoyer_markdown
-from assistant.corpus.pdf import page_cv
+from assistant.corpus.pdf import page_cv, retirer_coordonnees
 from assistant.modeles import Page, Section
 
-EXCLUS = (re.compile(r"^/(en/)?demo/"), re.compile(r"^/404"), re.compile(r"^/(en/)?contact/?$"))
+EXCLUS = (re.compile(r"^/(en/)?demo/"), re.compile(r"^/404"))
+# La page Contact entre au corpus avec le type "contact", coordonnees retirees
+# comme pour le CV (option 1b de l'etude). Elle n'est servie que si
+# `[corpus] inclure_contact` est vrai (corpus/servi.py).
+CONTACT = re.compile(r"^/(en/)?contact/?$")
+# Texte que Cloudflare laisse a la place d'une adresse masquee.
+COURRIEL_MASQUE = re.compile(r"\[\s*email[\s ]*(?:&#160;)?protected\s*\]", re.I)
 NS = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+
+
+def sections_contact(sections: list[Section]) -> list[Section]:
+    """Sections de la page Contact sans telephone, courriel, adresse ni commune."""
+    propres = []
+    for s in sections:
+        texte = retirer_coordonnees(COURRIEL_MASQUE.sub("", s.texte)).strip()
+        if texte:
+            propres.append(Section(s.titre_page, s.chemin, s.ancre, texte, "contact"))
+    return propres
 
 
 PROTECTION_COURRIEL = "/cdn-cgi/l/email-protection#"
@@ -114,6 +130,8 @@ class SourceSite:
                 continue
             titre, sections = sections_html(self.client.get(url).raise_for_status().text)
             langue = "en" if chemin == "/en" or chemin.startswith("/en/") else "fr"
+            if CONTACT.search(chemin):
+                sections = sections_contact(sections)
             pages.append(Page(chemin, langue, _projet(chemin), titre, tuple(sections)))
         return pages + self.pages_cv()
 

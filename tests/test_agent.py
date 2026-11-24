@@ -24,7 +24,7 @@ from assistant.outils import CHERCHER, CONTACT, LIRE, LISTER, NOMS
 from assistant.pipeline import Assistant, Parametres
 from assistant.recherche import RechercheMemoire
 
-from .conftest import SITE, evenements
+from .conftest import ENV_TEST, SITE, evenements, ouvrir_session
 
 QUESTION = "Quel taux de détection des pannes le moniteur atteint-il ?"
 
@@ -432,13 +432,14 @@ async def test_api_en_branche_agent(tmp_path, corpus_exemple, capsys):
     morceaux, coord = corpus_exemple
     r = config.charger(
         env={
+            **ENV_TEST,
             "ASSISTANT_CORPUS_FICHIER": str(tmp_path / "corpus.jsonl"),
             "ASSISTANT_MOTEUR_BRANCHE": "agent",
         }
     )
     c = await construire(r, morceaux, coord)
     with TestClient(creer_app(c)) as client:
-        jeton = client.post("/session", json={"jeton": "x"}).json()["session"]
+        jeton = ouvrir_session(client)
         rep = client.post(
             "/question",
             json={"question": QUESTION, "langue": "fr"},

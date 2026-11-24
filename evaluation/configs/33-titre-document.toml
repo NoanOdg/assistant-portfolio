@@ -1,0 +1,4 @@
+# Si B gagne : titre de la page passe avec chaque document (option 3c). Les
+# vecteurs changent : nouvelle version d'index, seuil a recaler.
+[moteur]
+titre_document = true

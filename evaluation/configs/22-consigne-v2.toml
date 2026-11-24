@@ -1,0 +1,6 @@
+# Etape 2.1 : consigne v2 par classes (option 9b), avec la date du jour (D7) et
+# les balises de donnees (10b).
+[moteur]
+consigne = "v2"
+ordre_contenu = "passages_d_abord"
+date_du_jour = true

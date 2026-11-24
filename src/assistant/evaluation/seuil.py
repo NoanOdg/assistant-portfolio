@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import math
+from pathlib import Path
 
 from assistant import config
 from assistant.evaluation import jeu as jeu_mod
@@ -26,10 +27,12 @@ def caler(distances_a_repondre: list[float], part_ecartee: float = 0.05) -> floa
     return math.ceil(v[garder - 1] * 1e6) / 1e6
 
 
-async def distances(questions: list[jeu_mod.QuestionEval]) -> dict[str, float]:
+async def distances(
+    questions: list[jeu_mod.QuestionEval], superpositions: list[Path] | None = None
+) -> dict[str, float]:
     from assistant.fabrique import charger_corpus, construire_recherche
 
-    r = config.charger()
+    r = config.charger(superpositions=superpositions)
     morceaux, _ = charger_corpus(r)
     embedder, recherche = await construire_recherche(r, morceaux)
     res = {}
@@ -41,9 +44,14 @@ async def distances(questions: list[jeu_mod.QuestionEval]) -> dict[str, float]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args(argv)
-    questions = [q for q in jeu_mod.charger(jeu_mod.JEU_TRAVAIL) if q.attendu != "carte"]
-    d = asyncio.run(distances(questions))
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("--fichier-jeu", type=Path, default=jeu_mod.JEU_TRAVAIL)
+    p.add_argument("--config", type=Path, action="append", default=[])
+    a = p.parse_args(argv)
+    if a.fichier_jeu.resolve() == jeu_mod.RESERVE.resolve():
+        raise SystemExit("le seuil se cale sur le jeu de travail, jamais sur la reserve")
+    questions = [q for q in jeu_mod.charger(a.fichier_jeu) if q.attendu != "carte"]
+    d = asyncio.run(distances(questions, a.config))
     seuil = caler([d[q.id] for q in questions if q.attendu == "repondre"])
     refuser = [q for q in questions if q.attendu == "refuser"]
     ecartees = sum(1 for q in refuser if d[q.id] > seuil)

@@ -1,0 +1,3 @@
+# Si A gagne : bornes de l'agent, 3 tours au lieu de 4.
+[agent]
+max_tours = 3

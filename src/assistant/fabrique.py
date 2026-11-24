@@ -12,7 +12,8 @@ from typing import Protocol
 from assistant.agent import AssistantAgent, Bornes, FauxModeleAgent, ModeleAgent, VertexModeleAgent
 from assistant.config import RACINE, Reglages
 from assistant.corpus.ingestion import lire
-from assistant.embeddings import FauxEmbedder, VertexEmbedder
+from assistant.corpus.servi import empreinte_corpus, selon_reglages
+from assistant.embeddings import Embedder, FauxEmbedder, VertexEmbedder
 from assistant.generation import FauxGenerateur, VertexGenerateur
 from assistant.limites import (
     CompteurFirestore,
@@ -21,16 +22,22 @@ from assistant.limites import (
     LimiteurVisiteur,
 )
 from assistant.modeles import Morceau
-from assistant.pipeline import Assistant, Parametres
-from assistant.recherche import RechercheFirestore, RechercheMemoire
+from assistant.pipeline import Assistant, Parametres, charger_consigne
+from assistant.recherche import (
+    Recherche,
+    RechercheFirestore,
+    RechercheHybride,
+    RechercheMemoire,
+    RechercheParente,
+)
 from assistant.session import (
+    Altcha,
     AntiRobot,
     AntiRobotDesactive,
     IdentiteEvaluation,
     IdentiteGoogle,
     IdentiteRefusee,
     Sessions,
-    Turnstile,
 )
 
 
@@ -75,6 +82,9 @@ class Composants:
     anti_robot: AntiRobot
     identite_eval: IdentiteEvaluation
     journal_questions: JournalQuestions
+    # Empreintes du corpus lu (fichier entier) et du corpus servi (apres reglages).
+    empreinte_corpus_source: str = ""
+    empreinte_corpus: str = ""
 
 
 def chemin_corpus(r: Reglages) -> Path:
@@ -82,7 +92,8 @@ def chemin_corpus(r: Reglages) -> Path:
     return p if p.is_absolute() else RACINE / p
 
 
-def charger_corpus(r: Reglages) -> tuple[list[Morceau], dict]:
+def charger_corpus_brut(r: Reglages) -> tuple[list[Morceau], dict]:
+    """Tout le fichier, page Contact comprise : pour les empreintes et le juge."""
     fichier = chemin_corpus(r)
     if not fichier.exists():
         raise FileNotFoundError(
@@ -92,7 +103,15 @@ def charger_corpus(r: Reglages) -> tuple[list[Morceau], dict]:
     return lire(fichier), (json.loads(coord.read_text(encoding="utf-8")) if coord.exists() else {})
 
 
+def charger_corpus(r: Reglages) -> tuple[list[Morceau], dict]:
+    """Les morceaux servis selon `[corpus]` (inclure_contact, compact), et la carte."""
+    morceaux, coord = charger_corpus_brut(r)
+    return selon_reglages(morceaux, r.corpus), coord
+
+
 def parametres(r: Reglages) -> Parametres:
+    m = r.moteur
+    tarif = r.tarif(m["modele_redaction"])
     return Parametres(
         seuil_distance=r.seuil_distance,
         passages=int(r.recherche["passages"]),
@@ -100,12 +119,21 @@ def parametres(r: Reglages) -> Parametres:
         delai_s=float(r.limites["delai_reponse_s"]),
         domaines=tuple(r.securite["domaines_autorises"]),
         site=r.site["url"],
-        tarif_entree=float(r.tarifs["redaction_entree"]),
-        tarif_sortie=float(r.tarifs["redaction_sortie"]),
+        tarif_entree=tarif["entree"],
+        tarif_sortie=tarif["sortie"],
+        tarif_cache=tarif["cache"],
+        mode_recherche=r.mode_recherche,
+        prefiltre_seuil=bool(r.refus.get("prefiltre_seuil", False)),
+        ordre_contenu=str(m.get("ordre_contenu", "question_d_abord")),
+        date_du_jour=bool(m.get("date_du_jour", False)),
+        aiguillage=str(r.aiguillage.get("version", "v1")),
+        etiquette_modele=bool(r.aiguillage.get("etiquette_modele", False)),
         versions={
-            "modele": r.moteur["modele_redaction"],
+            "modele": m["modele_redaction"],
             "corpus": r.corpus["version"],
             "branche": r.branche,
+            "architecture": r.architecture,
+            "config": r.empreinte,
         },
     )
 
@@ -134,28 +162,74 @@ def construire_modele_agent(r: Reglages) -> ModeleAgent:
     )
 
 
-async def construire_recherche(r: Reglages, morceaux: list[Morceau]):
-    """Embedder et recherche seuls, sans la verification de demarrage : sert au
-    calage du seuil, qui doit tourner justement quand le seuil n'est pas cale."""
+def construire_anti_robot(r: Reglages) -> AntiRobot:
+    """ALTCHA, cle de Secret Manager. En local sans cle : une cle tiree au demarrage."""
+    if r.securite["anti_robot"] != "altcha":
+        return AntiRobotDesactive()
+    a = r.altcha
+    return Altcha(
+        r.secrets.get("altcha") or secrets.token_hex(32),
+        algorithme=str(a.get("algorithme", "PBKDF2/SHA-256")),
+        cout=int(a.get("cout", 5000)),
+        prefixe=str(a.get("prefixe", "00")),
+        expiration_s=int(a.get("expiration_s", 120)),
+    )
+
+
+def construire_embedder(r: Reglages) -> Embedder:
     m = r.moteur
     if r.mode == "local":
-        embedder = FauxEmbedder(int(m["dimensions"]))
-        return embedder, await RechercheMemoire.construire(morceaux, embedder)
-    embedder = VertexEmbedder(
-        m["projet_gcp"], m["region"], m["modele_embeddings"], int(m["dimensions"])
+        return FauxEmbedder(int(m["dimensions"]))
+    return VertexEmbedder(
+        m["projet_gcp"],
+        m["region"],
+        m["modele_embeddings"],
+        int(m["dimensions"]),
+        tache_question=str(m.get("tache_question", "RETRIEVAL_QUERY")),
+        titre_document=bool(m.get("titre_document", False)),
     )
-    return embedder, RechercheFirestore(
-        m["projet_gcp"], r.corpus["collection"], r.corpus["version"]
-    )
+
+
+def envelopper(r: Reglages, base: Recherche, morceaux: list[Morceau]) -> Recherche:
+    """Variantes de recherche choisies dans les reglages (hybride, page parente)."""
+    rech = r.recherche
+    recherche = base
+    if rech.get("hybride"):
+        recherche = RechercheHybride(
+            recherche,
+            morceaux,
+            int(rech.get("k_rrf", 60)),
+            int(rech.get("candidats_hybride", 20)),
+        )
+    if r.corpus.get("decoupage") == "petit_grand":
+        recherche = RechercheParente(recherche, morceaux, int(rech.get("candidats_hybride", 20)))
+    return recherche
+
+
+async def construire_recherche(r: Reglages, morceaux: list[Morceau], memoire: bool = False):
+    """Embedder et recherche seuls, sans la verification de demarrage : sert au
+    calage du seuil, qui doit tourner justement quand le seuil n'est pas cale.
+    `memoire` : index en memoire meme sur Vertex (essais hors ligne de variantes
+    d'embedding ou de decoupage, sans version Firestore par variante)."""
+    embedder = construire_embedder(r)
+    if r.mode == "local" or memoire:
+        base: Recherche = await RechercheMemoire.construire(morceaux, embedder)
+    else:
+        base = RechercheFirestore(
+            r.moteur["projet_gcp"], r.corpus["collection"], r.corpus["version"]
+        )
+    return embedder, envelopper(r, base, morceaux)
 
 
 async def construire(
     r: Reglages, morceaux: list[Morceau] | None = None, coordonnees: dict | None = None
 ) -> Composants:
     r.verifier()
+    source = ""
     if morceaux is None or coordonnees is None:
-        lus, coord = charger_corpus(r)
-        morceaux = lus if morceaux is None else morceaux
+        lus, coord = charger_corpus_brut(r)
+        source = empreinte_corpus(lus)
+        morceaux = selon_reglages(lus, r.corpus) if morceaux is None else morceaux
         coordonnees = coord if coordonnees is None else coordonnees
     lim = r.limites
     m = r.moteur
@@ -181,11 +255,7 @@ async def construire(
             if r.journal["garder_questions"]
             else JournalMuet()
         )
-    anti_robot: AntiRobot = (
-        Turnstile(r.secrets["turnstile"])
-        if r.securite["anti_robot"] == "turnstile"
-        else AntiRobotDesactive()
-    )
+    anti_robot = construire_anti_robot(r)
     identite: IdentiteEvaluation = (
         IdentiteGoogle(r.securite["audience_evaluation"], r.securite["compte_evaluation"])
         if r.securite["compte_evaluation"]
@@ -203,7 +273,17 @@ async def construire(
             bornes(r),
         )
     else:
-        assistant = Assistant(embedder, recherche, generateur, parametres(r), coordonnees)
+        assistant = Assistant(
+            embedder,
+            recherche,
+            generateur,
+            parametres(r),
+            coordonnees,
+            charger_consigne(
+                str(m.get("consigne", "v1")), bool(r.aiguillage.get("etiquette_modele"))
+            ),
+            corpus=morceaux if r.architecture == "C" else None,
+        )
     return Composants(
         reglages=r,
         assistant=assistant,
@@ -215,4 +295,6 @@ async def construire(
         anti_robot=anti_robot,
         identite_eval=identite,
         journal_questions=journal_q,
+        empreinte_corpus_source=source or empreinte_corpus(morceaux),
+        empreinte_corpus=empreinte_corpus(morceaux),
     )

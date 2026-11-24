@@ -12,7 +12,7 @@ variable "region" {
 
 variable "noms" {
   type    = list(string)
-  default = ["assistant-cle-session", "assistant-turnstile"]
+  default = ["assistant-cle-session", "assistant-cle-altcha"]
 }
 
 variable "lecteur" {

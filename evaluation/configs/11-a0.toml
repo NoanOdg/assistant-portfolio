@@ -1,0 +1,3 @@
+# Etape 1 : A0, agent a outils (bornes de [agent]). Joue 2 fois.
+[moteur]
+branche = "agent"

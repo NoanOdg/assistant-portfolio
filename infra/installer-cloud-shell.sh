@@ -70,12 +70,9 @@ if a_une_version assistant-cle-session; then echo "cle de session : deja present
   openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add assistant-cle-session --data-file=- >/dev/null
   echo "cle de session : creee"
 fi
-if a_une_version assistant-turnstile; then echo "Turnstile : deja present"; else
-  read -rsp "Cle SECRETE Turnstile (Entree vide si pas encore creee) : " TS; echo
-  [ -n "$TS" ] || TS="a-remplacer"
-  printf '%s' "$TS" | gcloud secrets versions add assistant-turnstile --data-file=- >/dev/null
-  unset TS
-  echo "Turnstile : enregistre"
+if a_une_version assistant-cle-altcha; then echo "cle ALTCHA : deja presente"; else
+  openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add assistant-cle-altcha --data-file=- >/dev/null
+  echo "cle ALTCHA : creee"
 fi
 
 etape "7/8 Reste de l'infrastructure (Firestore, Cloud Run, WIF, budget, journaux)"

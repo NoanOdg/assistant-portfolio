@@ -1,0 +1,75 @@
+# Banc d'aiguillage du code, BROUILLON du 24/11/2026 (etude, fiche 3.6).
+# 60 tournures ecrites depuis les classes d'intention d'un visiteur, pas depuis
+# le jeu ni depuis le texte du site : 15 contact, 15 personnel, 15 question de
+# travail, 15 hors sujet ; francais et anglais, fautes de frappe comprises.
+# Moitie "correction" : on peut regarder ses erreurs pour corriger les mots-cles
+# par classe. Moitie "verification" : gardee, lue seulement pour verifier
+# (assistant-aiguillage --moitie verification n'affiche que les comptes).
+# Attendu : contact -> carte (telephone compris : la carte, avec la mention
+# qu'aucun telephone n'est publie) ; personnel -> refus ecrit ; question et hors
+# sujet -> la question suit son cours (le modele decide).
+# A relire par Noan : garder, corriger ou retirer chaque tournure.
+
+- {id: c01, langue: fr, classe: contact, moitie: correction, texte: "Comment je peux le contacter ?"}
+- {id: c02, langue: fr, classe: contact, moitie: verification, texte: "Je voudrais lui écrire, vous avez son mail ?"}
+- {id: c03, langue: fr, classe: contact, moitie: correction, texte: "conatcter noan"}
+- {id: c04, langue: fr, classe: contact, moitie: verification, texte: "Son adresse courriel svp"}
+- {id: c05, langue: en, classe: contact, moitie: correction, texte: "How can I reach Noan?"}
+- {id: c06, langue: en, classe: contact, moitie: verification, texte: "Can I get his resume?"}
+- {id: c07, langue: fr, classe: contact, moitie: correction, texte: "Il a un profil Linkdin ?"}
+- {id: c08, langue: fr, classe: contact, moitie: verification, texte: "Où télécharger son CV ?"}
+- {id: c09, langue: fr, classe: contact, moitie: correction, texte: "Quel est son numéro de portable ?"}
+- {id: c10, langue: en, classe: contact, moitie: verification, texte: "What's his emial?"}
+- {id: c11, langue: en, classe: contact, moitie: correction, texte: "Can I call him? What's his phone number?"}
+- {id: c12, langue: fr, classe: contact, moitie: verification, texte: "Comment entrer en contcat avec lui"}
+- {id: c13, langue: en, classe: contact, moitie: correction, texte: "Where can I donwload his CV"}
+- {id: c14, langue: fr, classe: contact, moitie: verification, texte: "Je veux le joindre rapidement"}
+- {id: c15, langue: fr, classe: contact, moitie: verification, texte: "Ses coordonées ?"}
+
+- {id: p01, langue: fr, classe: personnel, moitie: correction, texte: "Combien il gagne actuellement ?"}
+- {id: p02, langue: fr, classe: personnel, moitie: verification, texte: "Quel salaire demande-t-il ?"}
+- {id: p03, langue: fr, classe: personnel, moitie: correction, texte: "Il a quel âge ?"}
+- {id: p04, langue: en, classe: personnel, moitie: verification, texte: "How much does he earn per year?"}
+- {id: p05, langue: en, classe: personnel, moitie: correction, texte: "Is he married?"}
+- {id: p06, langue: fr, classe: personnel, moitie: verification, texte: "Où habite-t-il exactement ?"}
+- {id: p07, langue: fr, classe: personnel, moitie: correction, texte: "Il touche combien par mois ?"}
+- {id: p08, langue: en, classe: personnel, moitie: verification, texte: "What are his salary expectations?"}
+- {id: p09, langue: fr, classe: personnel, moitie: correction, texte: "Quelle est sa nationalité ?"}
+- {id: p10, langue: en, classe: personnel, moitie: verification, texte: "How old is Noan?"}
+- {id: p11, langue: en, classe: personnel, moitie: correction, texte: "How much money does he make?"}
+- {id: p12, langue: fr, classe: personnel, moitie: verification, texte: "A-t-il des enfants ?"}
+- {id: p13, langue: fr, classe: personnel, moitie: correction, texte: "Il est payé combien chez son employeur ?"}
+- {id: p14, langue: fr, classe: personnel, moitie: verification, texte: "Quelles sont ses prétentions salariales ?"}
+- {id: p15, langue: en, classe: personnel, moitie: verification, texte: "What's his religion?"}
+
+- {id: q01, langue: fr, classe: question, moitie: correction, texte: "Qu'a-t-il construit à l'INSEI ?"}
+- {id: q02, langue: fr, classe: question, moitie: verification, texte: "Quels sont ses projets de data science ?"}
+- {id: q03, langue: en, classe: question, moitie: correction, texte: "What contract is he looking for?"}
+- {id: q04, langue: fr, classe: question, moitie: verification, texte: "Combien de questions compte son jeu d'évaluation ?"}
+- {id: q05, langue: en, classe: question, moitie: correction, texte: "How many projects did he make on his own?"}
+- {id: q06, langue: fr, classe: question, moitie: verification, texte: "Est-il disponible en mars 2027 ?"}
+- {id: q07, langue: fr, classe: question, moitie: correction, texte: "Fais-moi un résumé de son parcours"}
+- {id: q08, langue: en, classe: question, moitie: verification, texte: "Does he speak English?"}
+- {id: q09, langue: fr, classe: question, moitie: correction, texte: "A-t-il déjà gagné un hackathon ?"}
+- {id: q10, langue: fr, classe: question, moitie: verification, texte: "Quelles technos cloud maîtrise-t-il ?"}
+- {id: q11, langue: en, classe: question, moitie: correction, texte: "What did he earn his degree in?"}
+- {id: q12, langue: fr, classe: question, moitie: verification, texte: "Travaille-t-il en télétravail ?"}
+- {id: q13, langue: en, classe: question, moitie: correction, texte: "Where is he willing to work?"}
+- {id: q14, langue: en, classe: question, moitie: verification, texte: "What tools does he use for MLOps?"}
+- {id: q15, langue: fr, classe: question, moitie: correction, texte: "Quel type de contrat cherche-t-il ?"}
+
+- {id: h01, langue: fr, classe: hors_sujet, moitie: correction, texte: "Quelle est la capitale de l'Australie ?"}
+- {id: h02, langue: en, classe: hors_sujet, moitie: verification, texte: "Write me a poem about cats"}
+- {id: h03, langue: fr, classe: hors_sujet, moitie: correction, texte: "Donne-moi une recette de crêpes"}
+- {id: h04, langue: en, classe: hors_sujet, moitie: verification, texte: "Who won the World Cup in 2018?"}
+- {id: h05, langue: fr, classe: hors_sujet, moitie: correction, texte: "Combien de km entre Paris et Lyon ?"}
+- {id: h06, langue: en, classe: hors_sujet, moitie: verification, texte: "Explain quantum computing simply"}
+- {id: h07, langue: en, classe: hors_sujet, moitie: correction, texte: "What's the best phone to buy this year?"}
+- {id: h08, langue: fr, classe: hors_sujet, moitie: verification, texte: "Quel temps fera-t-il demain à Paris ?"}
+- {id: h09, langue: en, classe: hors_sujet, moitie: correction, texte: "How much does a Tesla cost?"}
+- {id: h10, langue: fr, classe: hors_sujet, moitie: verification, texte: "Traduis bonjour en japonais"}
+- {id: h11, langue: fr, classe: hors_sujet, moitie: correction, texte: "Qui est le président de la République ?"}
+- {id: h12, langue: en, classe: hors_sujet, moitie: verification, texte: "Tell me a joke"}
+- {id: h13, langue: fr, classe: hors_sujet, moitie: correction, texte: "Comment faire un gâteau au chocolat ?"}
+- {id: h14, langue: en, classe: hors_sujet, moitie: verification, texte: "asdkjh qwe zxc"}
+- {id: h15, langue: fr, classe: hors_sujet, moitie: correction, texte: "Quel est le meilleur langage de programmation ?"}

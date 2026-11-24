@@ -24,7 +24,7 @@ from assistant.modeles import Page, Section
 # "12,15 M", "1 004 tests" ou "2023 - 2026".
 TELEPHONE = re.compile(
     r"(?:(?<![\w+])(?:\+|00)\d{1,3}[\s.-]?(?:\(0\)[\s.-]?)?\d(?:[\s.-]?\d{2}){4}(?!\d))"
-    r"|(?:(?<![\w,.])0[1-9](?:[\s.-]?\d{2}){4}(?![\d,]))"
+    r"|(?:(?<![\w,.])0[1-9](?:[\s.-]?\d{2}){4}(?!\d|,\d))"
 )
 COURRIEL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 VOIES = (

@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 from assistant.embeddings import Embedder
 from assistant.modeles import Morceau, Passage
-from assistant.recherche import Recherche
+from assistant.recherche import Recherche, meilleure_distance
 
 CHERCHER = "chercher_portfolio"
 LIRE = "lire_page"
@@ -149,11 +149,11 @@ class Outils:
             return Execution(extra={"erreur": "projet inconnu"}, erreur="argument")
         etape = ("etape_recherche", {})
         vecteur = (await self.embedder.vectoriser([requete.strip()[:REQUETE_MAX]], "question"))[0]
-        trouves = await self.recherche.chercher(vecteur, self.langue, self.k, projet)
-        meilleure = trouves[0].distance if trouves else None
+        trouves = await self.recherche.chercher(vecteur, self.langue, self.k, projet, texte=requete)
+        meilleure = meilleure_distance(trouves)
         # Meme regle que la branche B : le meilleur passage au-dessus du seuil,
         # rien ne passe. Le modele ne voit pas ces passages.
-        if not trouves or (self.appliquer_seuil and trouves[0].distance > self.seuil):
+        if not trouves or (self.appliquer_seuil and meilleure > self.seuil):
             return Execution(
                 extra={"note": "aucun passage assez proche"},
                 etape=etape,

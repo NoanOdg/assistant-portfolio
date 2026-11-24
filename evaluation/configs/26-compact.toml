@@ -1,0 +1,3 @@
+# Etape 2.6, seulement si C depasse le plafond de cout : corpus compact (option 1c).
+[corpus]
+compact = true

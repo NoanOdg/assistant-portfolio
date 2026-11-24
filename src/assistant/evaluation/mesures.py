@@ -56,9 +56,28 @@ def _centile(valeurs: list[float], q: float) -> float | None:
     return v[min(len(v) - 1, math.ceil(q * len(v)) - 1)]
 
 
+ERREUR_TECHNIQUE = "erreur_technique"
+
+
+def reussie(q: QuestionEval, x: dict) -> bool:
+    """Metrique principale de l'etude (section 2), hors cartes : une question a
+    repondre reussit si le juge la dit juste, une question a refuser si le refus
+    est reussi (refus ecrit par le code, ou refus correct selon le juge)."""
+    if q.attendu == "repondre":
+        return bool(x["jugement"]["juste"])
+    return x["chemin"].startswith("refus") or bool(x["jugement"]["refus_correct"])
+
+
 def calculer(questions: list[QuestionEval], resultats: dict[str, dict]) -> dict:
     q_par_id = {q.id: q for q in questions}
-    r = [(q_par_id[i], res) for i, res in resultats.items() if i in q_par_id]
+    erreurs = sorted(
+        i for i, res in resultats.items() if i in q_par_id and res["chemin"] == ERREUR_TECHNIQUE
+    )
+    r = [
+        (q_par_id[i], res)
+        for i, res in resultats.items()
+        if i in q_par_id and res["chemin"] != ERREUR_TECHNIQUE
+    ]
     a_repondre = [(q, x) for q, x in r if q.attendu == "repondre"]
     cartes = [(q, x) for q, x in r if q.attendu == "carte"]
     repondables = [(q, x) for q, x in r if q.a_repondre]
@@ -100,6 +119,15 @@ def calculer(questions: list[QuestionEval], resultats: dict[str, dict]) -> dict:
             len(a_refuser),
         ),
         "refus_a_tort": Taux(sum(1 for _, x in repondables if est_refus(x)), len(repondables)),
+        # metrique principale de la comparaison (etude, section 2), cartes exclues
+        "reussites": Taux(
+            sum(1 for q, x in r if q.attendu != "carte" and reussie(q, x)),
+            sum(1 for q, _ in r if q.attendu != "carte"),
+        ),
+        # information (10c) : chaque chiffre affiche figure dans un passage cite
+        "chiffres_attribues": Taux(
+            sum(1 for _, x in reponses if not x.get("chiffres_non_attribues")), len(reponses)
+        ),
     }
     familles: dict[str, Taux] = {}
     for q, x in r:
@@ -114,7 +142,15 @@ def calculer(questions: list[QuestionEval], resultats: dict[str, dict]) -> dict:
         t.succes += int(bool(ok))
     premiers = [x["premier_mot_ms"] for _, x in reponses if x.get("premier_mot_ms") is not None]
     durees = [x["duree_ms"] for _, x in r if x.get("duree_ms") is not None]
-    couts = [x.get("cout_usd", 0.0) for _, x in r]
+    couts = [x.get("cout_usd") or 0.0 for _, x in r]
+    production = [x.get("cout_production_usd") or x.get("cout_usd") or 0.0 for _, x in r]
+    juge = [(x.get("jugement") or {}).get("cout_usd") or 0.0 for _, x in r]
+    entree = sum(x.get("jetons_entree") or 0 for _, x in r)
+    cache = sum(x.get("jetons_cache") or 0 for _, x in r)
+    # Diagnostic du juge v2 sur les reponses fausses : fait absent des passages
+    # transmis (echec de recherche) ou present (echec de redaction).
+    fausses = [x for q, x in r if q.attendu == "repondre" and not x["jugement"]["juste"]]
+    diag = [x["jugement"].get("faits_dans_transmis") for x in fausses]
     return {
         "mesures": {k: v.vers_dict() for k, v in m.items()},
         "familles": {k: v.vers_dict() for k, v in sorted(familles.items())},
@@ -127,8 +163,22 @@ def calculer(questions: list[QuestionEval], resultats: dict[str, dict]) -> dict:
         "cout_usd": {
             "total": round(sum(couts), 6),
             "par_question": round(sum(couts) / len(couts), 6) if couts else None,
+            # plafond de la regle R0 : meme question, sans remise du cache
+            "production_total": round(sum(production), 6),
+            "production_par_question": (
+                round(sum(production) / len(production), 6) if production else None
+            ),
+            "juge_total": round(sum(juge), 6),
+            "part_entree_en_cache": round(cache / entree, 4) if entree else None,
+        },
+        "echecs": {
+            "faux": len(fausses),
+            "recherche": sum(1 for d in diag if d is False),
+            "redaction": sum(1 for d in diag if d is True),
+            "sans_diagnostic": sum(1 for d in diag if d is None),
         },
         "effectif": len(r),
+        "erreurs_techniques": erreurs,
     }
 
 
@@ -147,4 +197,14 @@ def texte_rapport(mesures: dict) -> str:
         f"Cout : {mesures['cout_usd']['total']} $ au total, "
         f"{mesures['cout_usd']['par_question']} $ par question",
     ]
+    cu = mesures["cout_usd"]
+    if "production_par_question" in cu:
+        lignes.append(
+            f"Cout de production sans cache : {cu['production_par_question']} $ par question ; "
+            f"juge : {cu['juge_total']} $"
+        )
+    if mesures.get("erreurs_techniques"):
+        lignes.append(
+            f"Erreurs techniques (non comptees, a rejouer) : {len(mesures['erreurs_techniques'])}"
+        )
     return "\n".join(lignes)

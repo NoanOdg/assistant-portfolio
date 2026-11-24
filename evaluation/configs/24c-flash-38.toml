@@ -1,0 +1,7 @@
+# Etape 2.4 : gemini-3.8-flash, reflexion par defaut du modele (MEDIUM ; MINIMAL
+# est refuse). Mesure une fois pour savoir ce que coute la qualite : au-dessus du
+# plafond de 0,012 $, il ne peut gagner que si Noan releve le plafond par une
+# decision ecrite AVANT la mesure (fiche 3.8).
+[moteur]
+modele_redaction = "gemini-3.8-flash"
+reflexion = ""

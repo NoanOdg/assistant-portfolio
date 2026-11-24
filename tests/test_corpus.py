@@ -132,6 +132,7 @@ def _client_site() -> httpx.Client:
         "/projets/exemple/": "projet-fr.html",
         "/en/projets/exemple/": "projet-en.html",
         "/contact": "contact.html",
+        "/contact/": "contact.html",
     }
 
     def repondre(requete: httpx.Request) -> httpx.Response:
@@ -153,7 +154,13 @@ def test_source_site_lit_le_plan_et_les_sections():
         ("/en/projets/exemple", "en", "exemple"),
         ("/CV_Exemple.pdf", "fr", "cv"),
         ("/Resume_Exemple.pdf", "en", "cv"),
+        ("/contact", "fr", "contact"),
     }
+    contact = next(p for p in pages if p.projet == "contact")
+    texte_contact = " ".join(s.texte for s in contact.sections)
+    assert "mars 2027" in texte_contact
+    assert "07 00" not in texte_contact and "@" not in texte_contact
+    assert {s.type for s in contact.sections} == {"contact"}
     cv = next(p for p in pages if p.projet == "cv" and p.langue == "fr")
     texte_cv = " ".join(s.texte for s in cv.sections)
     assert "Moniteur de pannes" in texte_cv

@@ -1,0 +1,5 @@
+# Option 6b : mots-cles corriges par classes. Decidee sur le banc
+# evaluation/aiguillage.yaml (assistant-aiguillage), pas sur le jeu ; ce fichier
+# sert a la superposer une fois decidee.
+[aiguillage]
+version = "classes"

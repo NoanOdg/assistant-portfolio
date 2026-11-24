@@ -41,7 +41,40 @@ def _blocs(texte: str, mots_max: int) -> list[str]:
     return blocs
 
 
-def decouper(page: Page, mots_max: int = MOTS_MAX) -> list[Morceau]:
+def _page_entiere(page: Page) -> list[Morceau]:
+    """Option 2c : une page, un morceau, cite a la page."""
+    blocs = []
+    for section in page.sections:
+        titre = " > ".join(c for c in section.chemin if c)
+        blocs.append(f"{titre}\n{section.texte}" if titre else section.texte)
+    texte = "\n\n".join(blocs)
+    if not texte:
+        return []
+    ident = hashlib.sha256(f"{page.url}|page".encode()).hexdigest()[:24]
+    types = {s.type for s in page.sections}
+    return [
+        Morceau(
+            id=ident,
+            url=page.url,
+            ancre="",
+            titre=page.titre,
+            contexte=page.titre,
+            texte=texte,
+            langue=page.langue,
+            projet=page.projet,
+            type=types.pop() if len(types) == 1 else "page",
+            empreinte=empreinte(f"{page.titre}\n{texte}"),
+        )
+    ]
+
+
+def decouper(page: Page, mots_max: int = MOTS_MAX, mode: str = "mots360") -> list[Morceau]:
+    """mode : "mots360" (servi) et "petit_grand" (meme decoupage ; la page entiere
+    est lue a la reponse), "section" (section entiere, option 2b), "page" (2c)."""
+    if mode == "page":
+        return _page_entiere(page)
+    if mode == "section":
+        mots_max = 10**9
     morceaux: list[Morceau] = []
     for section in page.sections:
         contexte = " > ".join((page.titre, *[c for c in section.chemin if c]))

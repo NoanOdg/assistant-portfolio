@@ -1,0 +1,239 @@
+# Comparaison des configurations de l'assistant (etude du 24/11/2026, plan 5.2),
+# a la demande : onglet Actions, "Comparaison", "Run workflow" (le telephone
+# suffit). Sans cle : Workload Identity Federation, le meme compte que le
+# workflow "Calage du seuil". Joue en processus sur Vertex, depose les sorties
+# en artefact "comparaison" et ecrit le rapport dans la page du run.
+# Ne touche ni au service en ligne, ni a la reserve, ni a la configuration.
+#
+# Operations :
+# - evaluer : joue une configuration (fichiers superposes, dans l'ordre) K fois ;
+#   avec 3 passages ou plus et sans base, calcule le bruit (sigma, G) ; avec une
+#   base (identifiant d'un run precedent), applique la regle R0 et publie le verdict.
+# - architecture : regle de la fiche 3.12 entre la base et d'autres runs.
+# - rejuger : rejuge les passages de la base avec la consigne du juge choisie.
+# - simuler-seuil : filtre de seuil simule sur les passages de la base (C), puis R0.
+# - passages-or : passages d'or (etape 0.1), a controler par Noan.
+# - rappel : rappel hors ligne d'une variante (evaluation/or/passages-or.json requis).
+name: Comparaison
+run-name: "Comparaison : ${{ inputs.operation }} ${{ inputs.nom }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Operation"
+        type: choice
+        options: [evaluer, architecture, rejuger, simuler-seuil, passages-or, rappel]
+        default: evaluer
+      nom:
+        description: "Nom court de la configuration (b0, c0, a0, c-contact...) : nomme les fichiers"
+        default: b0
+      configs:
+        description: "Fichiers superposes, dans l'ordre, separes par des espaces (vide : le service servi)"
+        default: ""
+      repetitions:
+        description: "Passages (5 pour la base, 2 pour un challenger)"
+        default: "2"
+      parallele:
+        description: "Questions jouees en meme temps (2 pour tout_le_corpus)"
+        default: "2"
+      fichier_jeu:
+        description: "Jeu de developpement (jamais la reserve)"
+        default: evaluation/jeu/questions.yaml
+      version_juge:
+        description: "Consigne du juge (v2 : reference fixe, a sceller avant)"
+        type: choice
+        options: [v2, v1]
+        default: v2
+      base_run_id:
+        description: "Identifiant du run de la base (son corpus et son bruit sont repris) ; vide : aucune"
+        default: ""
+      base_nom:
+        description: "Nom de la base dans ce run"
+        default: b0
+      runs:
+        description: "architecture : autres runs, NOM=IDENTIFIANT separes par des espaces (C=123 A=456)"
+        default: ""
+      seuil:
+        description: "simuler-seuil : seuil de distance (vide : celui des reglages)"
+        default: ""
+
+concurrency:
+  group: comparaison
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+
+env:
+  SITE: https://noan-ouedraogo.dev
+  SORTIES: build/comparaison
+  OPERATION: ${{ inputs.operation }}
+  NOM: ${{ inputs.nom }}
+  CONFIGS: ${{ inputs.configs }}
+  REPETITIONS: ${{ inputs.repetitions }}
+  PARALLELE: ${{ inputs.parallele }}
+  FICHIER_JEU: ${{ inputs.fichier_jeu }}
+  VERSION_JUGE: ${{ inputs.version_juge }}
+  BASE_RUN: ${{ inputs.base_run_id }}
+  BASE_NOM: ${{ inputs.base_nom }}
+  RUNS: ${{ inputs.runs }}
+  SEUIL: ${{ inputs.seuil }}
+
+jobs:
+  comparer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      ASSISTANT_MOTEUR_MODE: vertex
+      ASSISTANT_MOTEUR_PROJET_GCP: ${{ vars.GCP_PROJET }}
+      ASSISTANT_MOTEUR_REGION: europe-west1
+      # Evaluation en processus : aucun visiteur, pas de defi anti-robots.
+      ASSISTANT_SECURITE_ANTI_ROBOT: desactive
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen --extra gcp
+
+      - name: Garde-fous des entrees
+        run: |
+          case "$FICHIER_JEU" in
+            *reserve*) echo "La reserve ne se joue pas ici : une seule fois, a la main, avec son motif"; exit 1 ;;
+          esac
+          case "$NOM" in
+            ""|*[!a-zA-Z0-9_-]*) echo "nom invalide : lettres, chiffres, - et _"; exit 1 ;;
+          esac
+          ARGS=""
+          for f in $CONFIGS; do
+            [ -f "$f" ] || { echo "fichier superpose absent : $f"; exit 1; }
+            ARGS="$ARGS --config $f"
+          done
+          echo "CONFIG_ARGS=$ARGS" >> "$GITHUB_ENV"
+          mkdir -p "$SORTIES"
+          SECRET=$(openssl rand -hex 32)
+          echo "::add-mask::$SECRET"
+          echo "ASSISTANT_SECRET_SESSION=$SECRET" >> "$GITHUB_ENV"
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_FOURNISSEUR }}
+          service_account: ${{ secrets.GCP_COMPTE_DEPLOIEMENT }}
+
+      - name: Sorties de la base (corpus et bruit repris tels quels)
+        if: inputs.base_run_id != ''
+        run: |
+          gh run download "$BASE_RUN" -n comparaison -D build/base
+          if [ -f build/base/corpus.jsonl ]; then cp build/base/corpus.jsonl build/corpus.jsonl; fi
+          if [ -f build/base/comparaison/bruit.json ]; then cp build/base/comparaison/bruit.json "$SORTIES/"; fi
+
+      - name: Corpus depuis le site publie
+        if: hashFiles('build/corpus.jsonl') == ''
+        run: uv run assistant-ingerer --source site --site "$SITE" --sortie build/corpus.jsonl
+
+      - name: Index du corpus servi (version tiree du corpus, rien n'est recalcule si elle existe)
+        if: inputs.operation == 'evaluer'
+        run: |
+          uv run assistant-indexer --corpus build/corpus.jsonl --version auto $CONFIG_ARGS | tee index.txt
+          echo "ASSISTANT_CORPUS_VERSION=$(grep '^version=' index.txt | cut -d= -f2)" >> "$GITHUB_ENV"
+
+      - name: Evaluer la configuration
+        if: inputs.operation == 'evaluer'
+        run: |
+          uv run assistant-evaluer --cible local $CONFIG_ARGS \
+            --repetitions "$REPETITIONS" --parallele "$PARALLELE" \
+            --juge vertex --version-juge "$VERSION_JUGE" --fichier-jeu "$FICHIER_JEU" \
+            --sortie "$SORTIES/$NOM.json" | tee "$SORTIES/$NOM.txt"
+          { echo "## $NOM : $REPETITIONS passage(s)"; echo '```'; cat "$SORTIES/$NOM.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bruit de la base (sigma et G)
+        if: inputs.operation == 'evaluer' && inputs.base_run_id == '' && fromJSON(inputs.repetitions) >= 3
+        run: |
+          uv run assistant-bruit "$SORTIES/$NOM-r?.json" --sortie "$SORTIES/bruit.json" | tee bruit.txt
+          { echo '```'; cat bruit.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Regle R0 contre la base
+        if: inputs.operation == 'evaluer' && inputs.base_run_id != ''
+        run: |
+          BRUIT=""
+          if [ -f "$SORTIES/bruit.json" ]; then BRUIT="--bruit $SORTIES/bruit.json"; fi
+          uv run assistant-comparer \
+            --base "build/base/comparaison/$BASE_NOM[.]json" "build/base/comparaison/$BASE_NOM-r?.json" \
+            --challenger "$SORTIES/$NOM[.]json" "$SORTIES/$NOM-r?.json" $BRUIT \
+            --rapport "$SORTIES/rapport-$NOM.md" --sortie "$SORTIES/verdict-$NOM.json"
+          cat "$SORTIES/rapport-$NOM.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Regle d'architecture
+        if: inputs.operation == 'architecture'
+        run: |
+          [ -n "$BASE_RUN" ] && [ -n "$RUNS" ] || { echo "base_run_id et runs sont requis"; exit 1; }
+          ARGS="$BASE_NOM=build/base/comparaison/$BASE_NOM-r?.json"
+          for item in $RUNS; do
+            nom="${item%%=*}"; id="${item#*=}"
+            gh run download "$id" -n comparaison -D "build/runs/$nom"
+            ARGS="$ARGS $nom=build/runs/$nom/comparaison/*-r?.json"
+          done
+          BRUIT=""
+          if [ -f "$SORTIES/bruit.json" ]; then BRUIT="--bruit $SORTIES/bruit.json"; fi
+          uv run assistant-comparer --architecture $ARGS $BRUIT \
+            --rapport "$SORTIES/rapport-architecture.md" --sortie "$SORTIES/verdict-architecture.json"
+          cat "$SORTIES/rapport-architecture.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rejuger la base, sans regenerer
+        if: inputs.operation == 'rejuger'
+        run: |
+          [ -n "$BASE_RUN" ] || { echo "base_run_id est requis"; exit 1; }
+          # Les passages rejuges remplacent les copies : ce run sert ensuite de base,
+          # sous le meme nom, avec le nouveau juge.
+          cp build/base/comparaison/"$BASE_NOM"-r?.json "$SORTIES/"
+          uv run assistant-rejuger --juge vertex --version-juge "$VERSION_JUGE" \
+            --suffixe "" --resultats "$SORTIES"/"$BASE_NOM"-r?.json | tee rejuge.txt
+          if [ "$(ls "$SORTIES"/"$BASE_NOM"-r?.json | wc -l)" -ge 3 ]; then
+            uv run assistant-bruit "$SORTIES/$BASE_NOM-r?.json" --sortie "$SORTIES/bruit.json" | tee -a rejuge.txt
+          fi
+          { echo '```'; cat rejuge.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Simuler le filtre de seuil, puis R0
+        if: inputs.operation == 'simuler-seuil'
+        run: |
+          [ -n "$BASE_RUN" ] || { echo "base_run_id (un run de tout_le_corpus) est requis"; exit 1; }
+          cp build/base/comparaison/"$BASE_NOM"-r?.json "$SORTIES/"
+          OPT=""
+          if [ -n "$SEUIL" ]; then OPT="--seuil $SEUIL"; fi
+          uv run assistant-simuler-seuil $OPT --resultats "$SORTIES"/"$BASE_NOM"-r?.json
+          BRUIT=""
+          if [ -f "$SORTIES/bruit.json" ]; then BRUIT="--bruit $SORTIES/bruit.json"; fi
+          uv run assistant-comparer --base "$SORTIES/$BASE_NOM-r?.json" \
+            --challenger "$SORTIES/$BASE_NOM-r?-seuil.json" $BRUIT \
+            --rapport "$SORTIES/rapport-seuil.md" --sortie "$SORTIES/verdict-seuil.json"
+          cat "$SORTIES/rapport-seuil.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Passages d'or
+        if: inputs.operation == 'passages-or'
+        run: |
+          uv run assistant-or --fichier-jeu "$FICHIER_JEU" --sortie "$SORTIES/passages-or.json" | tee or.txt
+          { echo '```'; cat or.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rappel hors ligne
+        if: inputs.operation == 'rappel'
+        run: |
+          uv run assistant-rappel --or evaluation/or/passages-or.json --fichier-jeu "$FICHIER_JEU" \
+            $CONFIG_ARGS --sortie "$SORTIES/rappel-$NOM.json" | tee rappel.txt
+          { echo '```'; cat rappel.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Artefact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: comparaison
+          path: |
+            build/comparaison/
+            build/corpus.jsonl
+          if-no-files-found: warn
+          retention-days: 90

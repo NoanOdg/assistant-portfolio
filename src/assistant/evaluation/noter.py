@@ -28,6 +28,8 @@ from assistant.evaluation import jeu as jeu_mod
 from assistant.evaluation.mesures import Taux
 
 ACCORD_MIN = 0.90
+KAPPA_MIN = 0.70  # etude, fiche 3.11 : accord d'au moins 90 % et kappa de Cohen d'au moins 0,7
+PASSAGES_MAX = 30  # au-dela (tout_le_corpus), la page montre les seuls passages cites
 
 
 def _questions(sortie: dict, chemin_jeu: Path | None) -> dict[str, jeu_mod.QuestionEval]:
@@ -50,7 +52,7 @@ def verdict_juge(q: jeu_mod.QuestionEval, x: dict) -> bool | None:
     return bool(x["jugement"]["refus_correct"])
 
 
-def a_noter(sortie: dict, chemin_jeu: Path | None = None) -> list[dict]:
+def a_noter(sortie: dict, chemin_jeu: Path | None = None, prefixe: str = "") -> list[dict]:
     questions = _questions(sortie, chemin_jeu)
     elements = []
     for ident, x in sortie["resultats"].items():
@@ -60,9 +62,12 @@ def a_noter(sortie: dict, chemin_jeu: Path | None = None) -> list[dict]:
         v = verdict_juge(q, x)
         if v is None:
             continue
+        passages = x.get("passages", [])
+        if len(passages) > PASSAGES_MAX:
+            passages = x.get("passages_cites", [])
         elements.append(
             {
-                "id": ident,
+                "id": f"{prefixe}{ident}",
                 "question": q.question,
                 "langue": q.langue,
                 "attendu": q.attendu,
@@ -70,7 +75,7 @@ def a_noter(sortie: dict, chemin_jeu: Path | None = None) -> list[dict]:
                 "faits": list(q.faits_cles),
                 "reponse": x.get("texte", ""),
                 "sources": x.get("sources", []),
-                "passages": x.get("passages", []),
+                "passages": passages,
                 "juge": v,
                 "motif_juge": x["jugement"].get("motif", ""),
             }
@@ -194,6 +199,50 @@ def page_html(elements: list[dict], source: str) -> str:
     )
 
 
+def echantillon(groupes: list[list[dict]], n: int, graine: int = 20261124) -> list[dict]:
+    """n elements tires a parts egales de chaque fichier, stratifies par famille
+    (repartition proportionnelle, au moins un par famille presente), graine fixe :
+    la page de notation et le calcul de l'accord retrouvent le meme tirage."""
+    import random
+
+    alea = random.Random(graine)  # noqa: S311 (tirage d'echantillon, pas de securite)
+    part = n // len(groupes) if groupes else 0
+    choisis: list[dict] = []
+    for elements in groupes:
+        familles: dict[str, list[dict]] = {}
+        for e in sorted(elements, key=lambda e: e["id"]):
+            familles.setdefault(e["famille"], []).append(e)
+        total = len(elements)
+        quotas = {
+            f: max(1, round(part * len(lot) / total)) if total else 0 for f, lot in familles.items()
+        }
+        while sum(quotas.values()) > min(part, total):
+            plus = max(quotas, key=lambda f: (quotas[f], f))
+            quotas[plus] -= 1
+        while sum(quotas.values()) < min(part, total):
+            moins = max(
+                (f for f in quotas if quotas[f] < len(familles[f])),
+                key=lambda f: (len(familles[f]) - quotas[f], f),
+            )
+            quotas[moins] += 1
+        for f in sorted(familles):
+            choisis.extend(alea.sample(familles[f], min(quotas[f], len(familles[f]))))
+    return sorted(choisis, key=lambda e: e["id"])
+
+
+def kappa_cohen(paires: list[tuple[bool, bool]]) -> float | None:
+    if not paires:
+        return None
+    n = len(paires)
+    po = sum(1 for a, b in paires if a == b) / n
+    pa = sum(1 for a, _ in paires if a) / n
+    pb = sum(1 for _, b in paires if b) / n
+    pe = pa * pb + (1 - pa) * (1 - pb)
+    if pe >= 1:
+        return 1.0 if po == 1 else 0.0
+    return round((po - pe) / (1 - pe), 4)
+
+
 def accord(elements: list[dict], notes: dict[str, bool]) -> dict:
     notes_par_id = {k: bool(v) for k, v in notes.items()}
     notes_utiles = [e for e in elements if e["id"] in notes_par_id]
@@ -209,10 +258,16 @@ def accord(elements: list[dict], notes: dict[str, bool]) -> dict:
         if e["juge"] != notes_par_id[e["id"]]
     ]
     t = Taux(len(notes_utiles) - len(desaccords), len(notes_utiles))
+    kappa = kappa_cohen([(bool(e["juge"]), notes_par_id[e["id"]]) for e in notes_utiles])
     return {
         "accord": t.vers_dict(),
-        "fiable": bool(t.effectif) and (t.valeur or 0) >= ACCORD_MIN,
+        "kappa": kappa,
+        "fiable": bool(t.effectif)
+        and (t.valeur or 0) >= ACCORD_MIN
+        and kappa is not None
+        and kappa >= KAPPA_MIN,
         "seuil": ACCORD_MIN,
+        "seuil_kappa": KAPPA_MIN,
         "non_notees": sorted(e["id"] for e in elements if e["id"] not in notes_par_id),
         "desaccords": desaccords,
     }
@@ -220,7 +275,10 @@ def accord(elements: list[dict], notes: dict[str, bool]) -> dict:
 
 def texte_accord(a: dict) -> str:
     d = a["accord"]
-    lignes = [f"Accord juge / Noan : {Taux(d['succes'], d['effectif'])}"]
+    lignes = [
+        f"Accord juge / Noan : {Taux(d['succes'], d['effectif'])} ; "
+        f"kappa de Cohen : {a.get('kappa')}"
+    ]
     if a["non_notees"]:
         lignes.append(f"Non notees ({len(a['non_notees'])}) : {', '.join(a['non_notees'])}")
     lignes.append(f"Desaccords ({len(a['desaccords'])}) :")
@@ -230,39 +288,57 @@ def texte_accord(a: dict) -> str:
         lignes.append(f"- {x['id']} : juge {juge}, Noan {noan}. {x['question']}")
         lignes.append(f"    motif du juge : {x['motif_juge']}")
     lignes.append(
-        "On peut se fier au juge (accord d'au moins 90 %)."
+        "On peut se fier au juge (accord d'au moins 90 %, kappa d'au moins 0,7)."
         if a["fiable"]
-        else "Accord sous 90 % : corriger la consigne du juge avant tout reglage."
+        else "Accord sous 90 % ou kappa sous 0,7 : corriger la consigne du juge avant tout reglage."
     )
     return "\n".join(lignes)
 
 
+def elements_de(resultats: list[Path], jeu: Path | None, n: int | None) -> list[dict]:
+    """Un fichier : tous ses elements. Plusieurs : identifiants prefixes du nom du
+    fichier, puis, avec n, un echantillon a parts egales stratifie par famille."""
+    groupes = []
+    for chemin in resultats:
+        sortie = json.loads(chemin.read_text(encoding="utf-8"))
+        prefixe = f"{chemin.stem}:" if len(resultats) > 1 else ""
+        groupes.append(a_noter(sortie, jeu, prefixe))
+    if n:
+        return echantillon(groupes, n)
+    return [e for g in groupes for e in g]
+
+
 def main_page(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Ecrit la page de notation du juge par Noan.")
-    p.add_argument("--resultats", type=Path, required=True)
+    p.add_argument("--resultats", type=Path, nargs="+", required=True)
     p.add_argument("--jeu", type=Path, help="jeu joue (par defaut : celui du fichier)")
+    p.add_argument(
+        "--echantillon",
+        type=int,
+        help="n reponses a parts egales des fichiers, stratifiees par famille (etape 0.3 : 100)",
+    )
     p.add_argument("--sortie", type=Path, default=Path("build/notation-juge.html"))
     a = p.parse_args(argv)
-    sortie = json.loads(a.resultats.read_text(encoding="utf-8"))
-    elements = a_noter(sortie, a.jeu)
+    elements = elements_de(a.resultats, a.jeu, a.echantillon)
     a.sortie.parent.mkdir(parents=True, exist_ok=True)
-    a.sortie.write_text(page_html(elements, a.resultats.name), encoding="utf-8")
+    source = "+".join(c.name for c in a.resultats)
+    a.sortie.write_text(page_html(elements, source), encoding="utf-8")
     print(f"{len(elements)} reponses a noter -> {a.sortie}")
     return 0
 
 
 def main_accord(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Accord entre le juge et les notes de Noan.")
-    p.add_argument("--resultats", type=Path, required=True)
+    p.add_argument("--resultats", type=Path, nargs="+", required=True)
     p.add_argument("--notes", type=Path, required=True)
     p.add_argument("--jeu", type=Path)
+    p.add_argument("--echantillon", type=int, help="le meme n que pour la page de notation")
     p.add_argument("--sortie", type=Path, help="ecrit aussi le detail en JSON")
     a = p.parse_args(argv)
-    sortie = json.loads(a.resultats.read_text(encoding="utf-8"))
     notes = json.loads(a.notes.read_text(encoding="utf-8"))
-    res = accord(a_noter(sortie, a.jeu), notes.get("notes", notes))
+    res = accord(elements_de(a.resultats, a.jeu, a.echantillon), notes.get("notes", notes))
     res["le"] = dt.datetime.now(dt.UTC).isoformat()
-    res["resultats"] = a.resultats.name
+    res["resultats"] = [c.name for c in a.resultats]
     if a.sortie:
         a.sortie.parent.mkdir(parents=True, exist_ok=True)
         a.sortie.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")

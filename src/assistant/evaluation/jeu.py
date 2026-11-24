@@ -19,6 +19,16 @@ JEU_V2_BROUILLON = DOSSIER / "jeu" / "questions-v2-brouillon.yaml"
 RESERVE_V2_BROUILLON = DOSSIER / "jeu" / "reserve-v2-brouillon.yaml"
 SCEAU = DOSSIER / "jeu" / "sceau.json"
 CONSIGNE_JUGE = DOSSIER / "juge" / "consigne.md"
+# Juge v2 (etude, fiche 3.11, option 11b) : reference fixe, la meme pour A, B et C.
+CONSIGNE_JUGE_V2 = DOSSIER / "juge" / "consigne-v2.md"
+# Passages d'or (etape 0.1 du plan d'experience).
+CONSIGNE_OR = DOSSIER / "juge" / "consigne-or.md"
+# Regles de decision gelees (etude, section 2) : lues par assistant-comparer.
+REGLES = DOSSIER / "regles-decision.toml"
+# Banc d'aiguillage, a part du jeu (fiche 3.6).
+BANC_AIGUILLAGE = DOSSIER / "aiguillage.yaml"
+# Cle du sceau pour chaque version de la consigne du juge.
+CLES_CONSIGNE = {"v1": "consigne_juge_sha256", "v2": "consigne_juge_v2_sha256"}
 
 FAMILLES = {
     "fait_chiffre",
@@ -32,6 +42,7 @@ FAMILLES = {
     "fausse_premisse",
     "competence_absente",
     "renseignement",  # disponibilite, contrat, lieu, langues, formation
+    "incomprehensible",  # charabia, question sans objet : nature de refus de l'INSEI
 }
 ATTENDUS = {"repondre", "carte", "refuser"}
 
@@ -54,6 +65,10 @@ class QuestionEval:
     # Faits cles attendus, courts : le juge verifie leur presence, pas une phrase modele.
     faits: tuple[str, ...] = ()
     a_valider: bool = False
+    # Question d'origine d'une variante (bloc 1 du jeu v2) : les intervalles se
+    # calculent par bootstrap groupe. Vide : la question est son propre groupe.
+    groupe: str = ""
+    note: str = ""
 
     @property
     def a_repondre(self) -> bool:
@@ -88,6 +103,8 @@ def charger(chemin: Path) -> list[QuestionEval]:
             motifs_interdits=tuple(d.get("motifs_interdits") or ()),
             faits=tuple(str(f).strip() for f in d.get("faits") or ()),
             a_valider=bool(d.get("a_valider", False)),
+            groupe=str(d.get("groupe") or d["id"]),
+            note=str(d.get("note") or ""),
         )
         if q.langue not in {"fr", "en"} or q.famille not in FAMILLES or q.attendu not in ATTENDUS:
             raise ValueError(f"question {q.id} invalide")
@@ -114,8 +131,19 @@ def verifier_reserve() -> str:
     return reel
 
 
-def consigne_juge() -> str:
-    texte = CONSIGNE_JUGE.read_text(encoding="utf-8")
-    if empreinte_fichier(CONSIGNE_JUGE) != lire_sceau()["consigne_juge_sha256"]:
-        raise SceauRompu("la consigne du juge a change : elle est gelee par empreinte")
+def fichier_consigne(version: str = "v1") -> Path:
+    return {"v1": CONSIGNE_JUGE, "v2": CONSIGNE_JUGE_V2}[version]
+
+
+def consigne_juge(version: str = "v1") -> str:
+    fichier = fichier_consigne(version)
+    texte = fichier.read_text(encoding="utf-8")
+    attendue = lire_sceau().get(CLES_CONSIGNE[version])
+    if not attendue:
+        raise SceauRompu(
+            f"la consigne {version} du juge n'est pas scellee : "
+            f"assistant-sceller --consigne-juge --version-juge {version} --motif ..."
+        )
+    if empreinte_fichier(fichier) != attendue:
+        raise SceauRompu(f"la consigne {version} du juge a change : elle est gelee par empreinte")
     return texte

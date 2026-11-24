@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from assistant.api import creer_app
+from assistant.evaluation.executer import CibleHttp, resultat
+from assistant.evaluation.jeu import QuestionEval
 from assistant.fabrique import construire
+
+from .conftest import ouvrir_session
 
 # Adresses de documentation (RFC 5737) seulement.
 IP = "203.0.113.77"
@@ -41,7 +46,7 @@ def client(composants):
 
 
 def session(client) -> dict:
-    jeton = client.post("/session", json={"jeton": "x"}).json()["session"]
+    jeton = ouvrir_session(client)
     return {"Authorization": f"Bearer {jeton}", "X-Forwarded-For": f"{PROXY}, {IP}"}
 
 
@@ -133,3 +138,58 @@ def test_cors_limite_au_site(client):
         headers={"Origin": "https://noan-ouedraogo.dev", "Access-Control-Request-Method": "POST"},
     )
     assert r.headers["access-control-allow-origin"] == "https://noan-ouedraogo.dev"
+
+
+INTERNES = ("bilan", "chemin", "meilleure_distance", "cout_usd", "jetons_entree", "passages")
+
+
+@pytest.mark.parametrize(
+    ("question", "chemin"),
+    [
+        ("Quel taux de détection des pannes ?", "reponse"),
+        ("Quelle est la recette de la tarte aux pommes ?", "refus_seuil"),
+        ("Comment contacter Noan ?", "carte"),
+    ],
+)
+def test_fin_publique_sans_statistiques_internes(client, capsys, question, chemin):
+    r = client.post(
+        "/question", json={"question": question, "langue": "fr"}, headers=session(client)
+    )
+    evts = lire_sse(r.text)
+    assert evts[-1][0] == "fin" and set(evts[-1][1]) == {"trace"}
+    assert not any(cle in r.text for cle in INTERNES)
+    # Le journal, lui, garde le bilan complet.
+    lignes = [json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith("{")]
+    q = next(x for x in lignes if x["message"] == "question")
+    assert q["trace"] == evts[-1][1]["trace"] and q["chemin"] == chemin and "duree_ms" in q
+
+
+def test_fin_complete_pour_l_evaluation(client):
+    r = client.post(
+        "/question",
+        json={"question": "Quel taux de détection des pannes ?"},
+        headers={"X-Jeton-Evaluation": "jeton-eval-valide"},
+    )
+    fin = lire_sse(r.text)[-1][1]
+    assert fin["chemin"] == "reponse" and fin["trace"]
+    assert fin["bilan"]["meilleure_distance"] is not None and "cout_usd" in fin["bilan"]
+
+
+async def test_cible_http_de_l_evaluation_lit_le_bilan(composants):
+    """assistant-evaluer --cible http obtient toujours chemin, cout et distance."""
+    app = creer_app(composants)
+    app.state.c = composants
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://service") as cl:
+        cible = CibleHttp("http://service", "jeton-eval-valide", client=cl)
+        q = QuestionEval(
+            id="t1",
+            langue="fr",
+            famille="fait",
+            question="Quel taux de détection des pannes ?",
+            attendu="reponse",
+            reponse_attendue="",
+        )
+        res = await resultat(cible, q)
+    assert res["chemin"] != "inconnu"
+    assert res["duree_ms"] is not None and "cout_usd" in res and "meilleure_distance" in res

@@ -1,0 +1,4 @@
+# Etape 2.4 : gemini-3.5-flash-lite, reflexion minimale (option 8c).
+[moteur]
+modele_redaction = "gemini-3.5-flash-lite"
+reflexion = "minimal"

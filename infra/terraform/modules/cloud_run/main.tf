@@ -41,8 +41,9 @@ variable "secret_session" {
   type = string
 }
 
-variable "secret_turnstile" {
-  type = string
+variable "secret_altcha" {
+  description = "Cle HMAC des defis ALTCHA (Secret Manager)."
+  type        = string
 }
 
 variable "modele_redaction" {
@@ -52,7 +53,7 @@ variable "modele_redaction" {
 
 variable "anti_robot" {
   type    = string
-  default = "turnstile"
+  default = "altcha"
 }
 
 variable "public" {
@@ -133,10 +134,10 @@ resource "google_cloud_run_v2_service" "assistant" {
         }
       }
       env {
-        name = "ASSISTANT_SECRET_TURNSTILE"
+        name = "ASSISTANT_SECRET_ALTCHA"
         value_source {
           secret_key_ref {
-            secret  = var.secret_turnstile
+            secret  = var.secret_altcha
             version = "latest"
           }
         }

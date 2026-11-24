@@ -166,7 +166,9 @@ class Embedder(Protocol):
     nom: str
     dimensions: int
 
-    async def vectoriser(self, textes: list[str], tache: Tache) -> list[list[float]]: ...
+    async def vectoriser(
+        self, textes: list[str], tache: Tache, titres: list[str] | None = None
+    ) -> list[list[float]]: ...
 
 
 class FauxEmbedder:
@@ -195,7 +197,9 @@ class FauxEmbedder:
                 v[i] += 0.3 * s
         return normaliser(v)
 
-    async def vectoriser(self, textes: list[str], tache: Tache) -> list[list[float]]:
+    async def vectoriser(
+        self, textes: list[str], tache: Tache, titres: list[str] | None = None
+    ) -> list[list[float]]:
         self.appels += 1
         return [self._un(t) for t in textes]
 
@@ -205,25 +209,39 @@ class VertexEmbedder:
 
     Non execute par les tests. Un texte par requete : limite du modele sur Vertex
     a verifier au jour 2 ; `parallele` borne les requetes simultanees.
+    `tache_question` : RETRIEVAL_QUERY (servi) ou QUESTION_ANSWERING (option 3b).
+    `titre_document` : le titre de la page accompagne chaque document (option 3c,
+    permis seulement avec RETRIEVAL_DOCUMENT).
     """
 
     def __init__(
-        self, projet: str, region: str, modele: str, dimensions: int = 768, parallele: int = 4
+        self,
+        projet: str,
+        region: str,
+        modele: str,
+        dimensions: int = 768,
+        parallele: int = 4,
+        tache_question: str = "RETRIEVAL_QUERY",
+        titre_document: bool = False,
     ) -> None:
         from google import genai  # import paresseux : dependance optionnelle
 
         self._client = genai.Client(vertexai=True, project=projet, location=region)
         self.nom = modele
         self.dimensions = dimensions
+        self.tache_question = tache_question
+        self.titre_document = titre_document
         self._sem = asyncio.Semaphore(parallele)
 
-    async def _un(self, texte: str, tache: Tache) -> list[float]:
+    async def _un(self, texte: str, tache: Tache, titre: str | None) -> list[float]:
         from google.genai import types
 
         config = types.EmbedContentConfig(
-            task_type="RETRIEVAL_QUERY" if tache == "question" else "RETRIEVAL_DOCUMENT",
+            task_type=self.tache_question if tache == "question" else "RETRIEVAL_DOCUMENT",
             output_dimensionality=self.dimensions,
         )
+        if tache == "document" and self.titre_document and titre:
+            config.title = titre
         async with self._sem:
             r = await self._client.aio.models.embed_content(
                 model=self.nom, contents=texte, config=config
@@ -231,5 +249,12 @@ class VertexEmbedder:
         # Sous 3 072 dimensions, le vecteur n'est pas normalise par le modele.
         return normaliser(list(r.embeddings[0].values))
 
-    async def vectoriser(self, textes: list[str], tache: Tache) -> list[list[float]]:
-        return list(await asyncio.gather(*(self._un(t, tache) for t in textes)))
+    async def vectoriser(
+        self, textes: list[str], tache: Tache, titres: list[str] | None = None
+    ) -> list[list[float]]:
+        noms = titres or [None] * len(textes)
+        return list(
+            await asyncio.gather(
+                *(self._un(t, tache, n) for t, n in zip(textes, noms, strict=True))
+            )
+        )

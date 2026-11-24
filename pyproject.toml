@@ -11,6 +11,7 @@ dependencies = [
     "pyyaml>=6.0",
     "beautifulsoup4>=4.12",
     "pypdf>=7.1",
+    "altcha>=2.5,<3",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,13 @@ assistant-caler-seuil = "assistant.evaluation.seuil:main"
 assistant-sceller = "assistant.evaluation.sceller:main"
 assistant-noter = "assistant.evaluation.noter:main_page"
 assistant-accord = "assistant.evaluation.noter:main_accord"
+assistant-bruit = "assistant.evaluation.comparaison:main_bruit"
+assistant-comparer = "assistant.evaluation.comparaison:main_comparer"
+assistant-rejuger = "assistant.evaluation.rejouer:main_rejuger"
+assistant-simuler-seuil = "assistant.evaluation.rejouer:main_simuler_seuil"
+assistant-or = "assistant.evaluation.rappel:main_or"
+assistant-rappel = "assistant.evaluation.rappel:main_rappel"
+assistant-aiguillage = "assistant.evaluation.aiguillage:main"
 
 [dependency-groups]
 dev = [

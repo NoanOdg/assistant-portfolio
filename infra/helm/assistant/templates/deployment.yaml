@@ -42,11 +42,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secretExistant }}
                   key: session
-            - name: ASSISTANT_SECRET_TURNSTILE
+            - name: ASSISTANT_SECRET_ALTCHA
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secretExistant }}
-                  key: turnstile
+                  key: altcha
                   optional: true
           resources:
             {{- toYaml .Values.ressources | nindent 12 }}

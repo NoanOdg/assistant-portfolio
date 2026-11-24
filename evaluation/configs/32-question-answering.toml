@@ -1,0 +1,4 @@
+# Si B gagne : type de tache QUESTION_ANSWERING pour les questions (option 3b).
+# Seuil a recaler (workflow Calage du seuil).
+[moteur]
+tache_question = "QUESTION_ANSWERING"

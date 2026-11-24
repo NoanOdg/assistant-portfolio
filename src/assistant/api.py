@@ -1,17 +1,24 @@
 """API HTTP : FastAPI, reponses en flux SSE.
 
-    POST /session   jeton Turnstile -> jeton de session signe (30 min)
+    GET  /defi      defi ALTCHA signe (preuve de travail, expire vite)
+    POST /session   solution ALTCHA -> jeton de session signe (30 min)
     POST /question  question + langue de la page -> flux d'evenements SSE
     GET  /sante     sonde de vie et de disponibilite
 
+Contrat complet pour le widget du site : docs/api-widget.md.
+
 Evenements du flux : etape, texte, sources, carte, refus, erreur, fin
-(et diagnostic, pour l'evaluation seulement).
+(et diagnostic, pour l'evaluation seulement). En public, `fin` ne porte que
+l'identifiant de trace : le bilan (cout, jetons, distance du meilleur passage,
+chemin) aiderait a sonder le seuil de refus. Il reste dans le journal, et dans
+le flux de l'evaluation (jeton d'identite Google du compte de deploiement).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -31,7 +38,8 @@ VERSION = "0.1.0"
 
 
 class DemandeSession(BaseModel):
-    jeton: str = Field(default="", max_length=4096)
+    # Charge ALTCHA : base64 du JSON {"challenge": ..., "solution": ...}.
+    altcha: str = Field(min_length=1, max_length=4096)
 
 
 class Question(BaseModel):
@@ -39,8 +47,26 @@ class Question(BaseModel):
     langue: Literal["fr", "en"] = "fr"
 
 
+def fin_publique(e: Evenement, trace: str, evaluation: bool) -> Evenement:
+    """L'evaluation recoit chemin et bilan ; le visiteur, la trace seule."""
+    if evaluation:
+        return Evenement("fin", {**e.donnees, "trace": trace})
+    return Evenement("fin", {"trace": trace})
+
+
 def sse(e: Evenement) -> str:
     return f"event: {e.type}\ndata: {json.dumps(e.donnees, ensure_ascii=False)}\n\n"
+
+
+def motif_origines(projet_pages: str) -> str | None:
+    """Apercus Cloudflare Pages du projet : https://<empreinte ou branche>.<projet>.pages.dev,
+    et l'alias de production https://<projet>.pages.dev. Vide : aucun apercu."""
+    projet = projet_pages.strip().lower()
+    if not projet:
+        return None
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", projet):
+        raise ValueError(f"nom de projet Cloudflare Pages invalide : {projet_pages!r}")
+    return rf"https://(?:[a-z0-9-]+\.)?{projet}\.pages\.dev"
 
 
 def adresse_client(request: Request, rang: int) -> str:
@@ -77,9 +103,11 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+    sec = reglages.securite
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=list(reglages.securite["origines"]),
+        allow_origins=[*sec["origines"], *sec.get("origines_locales", [])],
+        allow_origin_regex=motif_origines(str(sec.get("projet_pages", ""))),
         allow_methods=["POST", "GET"],
         allow_headers=["Authorization", "Content-Type"],
         max_age=600,
@@ -89,12 +117,26 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
     async def sante() -> dict:
         return {"etat": "ok", "version": VERSION}
 
-    @app.post("/session")
-    async def session(demande: DemandeSession, request: Request) -> dict:
+    @app.get("/defi")
+    async def defi(request: Request) -> JSONResponse:
         c: Composants = request.app.state.c
-        if not await c.anti_robot.verifier(demande.jeton):
-            raise HTTPException(status_code=403, detail="verification anti-robots refusee")
-        return {"session": c.sessions.emettre(), "expire_dans": c.sessions.duree_s}
+        return JSONResponse(c.anti_robot.defi(), headers={"Cache-Control": "no-store"})
+
+    @app.post("/session")
+    async def session(demande: DemandeSession, request: Request):
+        c: Composants = request.app.state.c
+        motif = await c.anti_robot.verifier(demande.altcha)
+        if motif:
+            journal.ecrire("anti_robot", motif=motif, statut=403)
+            return JSONResponse(
+                {"detail": "verification anti-robots refusee", "motif": motif},
+                status_code=403,
+                headers={"Cache-Control": "no-store"},
+            )
+        return JSONResponse(
+            {"session": c.sessions.emettre(), "expire_dans": c.sessions.duree_s},
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.post("/question")
     async def question(
@@ -144,7 +186,6 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
                 async for e in c.assistant.repondre(q.question, q.langue, diagnostic=evaluation):
                     if e.type == "fin":
                         chemin = e.donnees["chemin"]
-                        e.donnees["trace"] = trace
                         journal.ecrire(
                             "question",
                             trace=trace,
@@ -157,13 +198,14 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
                             branche=c.assistant.branche,
                             **e.donnees["bilan"],
                         )
+                        e = fin_publique(e, trace, evaluation)
                     yield sse(e)
             except Exception:  # le visiteur recoit un message, le journal la pile
                 logging.getLogger(journal.NOM).exception(
                     "echec", extra={"champs": {"trace": trace, "statut": 500}}
                 )
                 yield sse(Evenement("erreur", {"texte": textes.texte(q.langue, "erreur")}))
-                yield sse(Evenement("fin", {"chemin": "erreur", "trace": trace}))
+                yield sse(fin_publique(Evenement("fin", {"chemin": "erreur"}), trace, evaluation))
             if not evaluation:
                 await c.journal_questions.garder(q.question, q.langue, chemin)
 
