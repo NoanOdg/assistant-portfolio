@@ -20,6 +20,11 @@ on:
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
+    inputs:
+      corpus_neuf:
+        description: "Corpus neuf (refonte du site) : indexer sans comparer a la version en ligne"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploiement
@@ -77,6 +82,9 @@ jobs:
             PREC=$(gcloud run revisions describe "$REV" --region "$REGION" \
                    --format='value(metadata.labels.corpus)' || true)
           fi
+          # Refonte du site : les morceaux changent tous, la garde de suppression
+          # bloquerait a raison ; on indexe alors sans version precedente.
+          if [ "${{ inputs.corpus_neuf }}" = "true" ]; then PREC=""; fi
           echo "precedente=$PREC" >> "$GITHUB_OUTPUT"
 
       - name: Corpus depuis le site publie
