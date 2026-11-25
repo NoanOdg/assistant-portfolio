@@ -74,7 +74,7 @@ candidats_hybride = 20
 # seuil", recopiee ici a la main apres relecture (seule source, pas de variable
 # d'environnement).
 seuil_distance_local = 0.759298
-seuil_distance_vertex = 0.336559   # cale le 23/11/2026 (site avant refonte) ; -1 = non cale, refus de demarrer
+seuil_distance_vertex = 0.365999   # cale le 25/11/2026 sur le site refondu (5/18 hors sujet ecartes par le code, 1/20 ecarte a tort) ; -1 = non cale, refus de demarrer
 
 [agent]
 # Bornes de la branche A, appliquees par le code. Au-dela de max_appels_outils
