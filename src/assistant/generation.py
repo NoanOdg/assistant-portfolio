@@ -9,6 +9,17 @@ from dataclasses import dataclass
 from typing import Protocol
 
 MARQUEUR_REFUS = "[REFUS]"
+# Le marqueur, ou qu'il soit et quelle que soit sa casse : jamais affiche.
+MARQUEUR = re.compile(r"\s*\[\s*REFUS\s*\]", re.I)
+
+
+def utile(texte: str) -> bool:
+    """Vrai si le texte dit quelque chose : ni marqueur, ni renvoi [n], ni
+    ponctuation seule. Un crochet encore ouvert en fin de flux ne compte pas."""
+    t = MARQUEUR.sub(" ", texte)
+    t = re.sub(r"\[\d{1,3}\]", " ", t)
+    t = re.sub(r"\[[^\]]*$", " ", t)
+    return re.search(r"\w", t) is not None
 
 
 @dataclass

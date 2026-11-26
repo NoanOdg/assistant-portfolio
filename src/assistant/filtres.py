@@ -4,7 +4,8 @@
 - tout lien hors liste blanche est retire, liens Markdown ramenes a leur texte ;
 - aucune image, aucune balise HTML ;
 - aucun courriel : la carte de contact l'affiche, le modele ne l'ecrit jamais ;
-- tirets longs et demi-longs remplaces par une virgule (regle du depot).
+- tirets longs et demi-longs remplaces par une virgule (regle du depot) ;
+- le marqueur de refus ([REFUS]) n'est jamais affiche, ou qu'il soit.
 
 Le texte est retenu tant qu'un chiffre, un lien ou un crochet peut etre coupe.
 """
@@ -14,6 +15,8 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+
+from assistant.generation import MARQUEUR
 
 TIRETS = re.compile(r"\s*[\N{EN DASH}\N{EM DASH}]\s*")
 # Un nombre : groupes de 3 chiffres separes par espace (fine ou insecable), point
@@ -60,6 +63,7 @@ class Compteurs:
     chiffres_remplaces: int = 0
     liens_retires: int = 0
     courriels_retires: int = 0
+    marqueurs_retires: int = 0
 
 
 class FiltreFlux:
@@ -83,6 +87,8 @@ class FiltreFlux:
     def _nettoyer(self, texte: str) -> str:
         # Une coupure de flux tombe toujours sur un blanc : en fin de segment, le
         # blanc qui suit le tiret ouvre le segment suivant.
+        texte, n = MARQUEUR.subn("", texte)  # entier : un crochet ouvert est retenu
+        self.compteurs.marqueurs_retires += n
         texte = TIRETS.sub(lambda mo: "," if mo.end() == len(texte) else ", ", texte)
         texte = IMAGE_MD.sub("", texte)
         texte = HTML.sub("", texte)

@@ -1,7 +1,10 @@
 """Source de production : le site tel qu'en ligne, lu par son plan (sitemap).
 
 Seul le contenu public entre, par construction. Chaque page est coupee en
-sections h2 et h3 d'apres les identifiants que le site pose sur ses titres.
+sections h2 et h3, lues comme un visiteur les lit (corpus/lecture.py). Les
+redirections et les pages noindex sont ignorees. Chaque pile technique a son
+morceau, et une vue "technologies par projet" en est derivee, rangee sur la
+page Projets.
 Les deux CV publics (PDF lies depuis la page Contact, absents du plan) entrent
 aussi, sans telephone, courriel ni adresse (corpus/pdf.py).
 Cette source n'est jamais appelee par les tests (client HTTP simule).
@@ -14,9 +17,9 @@ from urllib.parse import urlparse
 from xml.etree import ElementTree
 
 import httpx
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
-from assistant.corpus.mdx import nettoyer_markdown
+from assistant.corpus.lecture import PageLue, lire_page
 from assistant.corpus.pdf import page_cv, retirer_coordonnees
 from assistant.modeles import Page, Section
 
@@ -62,42 +65,45 @@ def _projet(chemin: str) -> str:
 
 
 def sections_html(html: str) -> tuple[str, list[Section]]:
-    soupe = BeautifulSoup(html, "html.parser")
-    zone = soupe.find("main") or soupe.body or soupe
-    for inutile in zone.find_all(["script", "style", "svg", "noscript", "nav", "form"]):
-        inutile.decompose()
-    h1 = zone.find("h1")
-    titre = h1.get_text(" ", strip=True) if h1 else (soupe.title.string if soupe.title else "")
-    sections: list[Section] = []
-    h2 = ""
-    chemin: tuple[str, ...] = ()
-    ancre = ""
-    tampon: list[str] = []
+    """Titre et sections d'une page (lecture detaillee : corpus/lecture.py)."""
+    lue = lire_page(html)
+    return lue.titre, lue.sections
 
-    def vider() -> None:
-        texte = nettoyer_markdown("\n\n".join(tampon))
-        if texte:
-            sections.append(Section(titre, chemin, ancre, texte))
-        tampon.clear()
 
-    for el in zone.find_all(["h2", "h3", "p", "li", "blockquote", "figcaption", "dd", "dt"]):
-        if not isinstance(el, Tag):
+VUE = {
+    "fr": {
+        "titre": "Technologies par projet",
+        "intro": (
+            "Technologies utilisées dans chaque projet, "
+            "d'après la pile technique publiée sur sa page."
+        ),
+        "page": "Projets",
+    },
+    "en": {
+        "titre": "Technologies by project",
+        "intro": (
+            "Technologies used in each project, from the technical stack published on its page."
+        ),
+        "page": "Projects",
+    },
+}
+
+
+def vue_technologies(lues: list[tuple[str, PageLue]], langue: str) -> Section | None:
+    """Vue transversale : une ligne par projet, ses technologies telles que sa pile
+    les publie. Rien n'y est ajoute ni regroupe : elle sert les questions
+    "quels projets utilisent X", qu'aucune page ne traite seule."""
+    lignes = []
+    for _, lue in lues:
+        if lue.langue != langue or lue.pile is None:
             continue
-        if el.name in {"h2", "h3"}:
-            vider()
-            t = el.get_text(" ", strip=True)
-            if el.name == "h2":
-                h2, chemin = t, (t,)
-            else:
-                chemin = (h2, t) if h2 else (t,)
-            ancre = str(el.get("id") or "")
-            continue
-        # Un paragraphe dans une liste est deja couvert par son <li>.
-        if el.name == "p" and el.find_parent("li"):
-            continue
-        tampon.append(el.get_text(" ", strip=True))
-    vider()
-    return titre, sections
+        briques = [b for _, bs in lue.pile.lignes for b in bs]
+        nom = f"{lue.nom} ({lue.sous_titre})" if lue.sous_titre else lue.nom
+        lignes.append(f"{nom}{' : ' if langue == 'fr' else ': '}{', '.join(briques)}.")
+    if not lignes:
+        return None
+    v = VUE[langue]
+    return Section(v["page"], (v["titre"],), "", "\n\n".join([v["intro"], *lignes]), "pile")
 
 
 class SourceSite:
@@ -124,16 +130,37 @@ class SourceSite:
 
     def pages(self) -> list[Page]:
         pages = []
+        lues: list[tuple[str, PageLue]] = []
         for url in self.urls():
             chemin = urlparse(url).path.rstrip("/") or "/"
             if any(m.search(chemin) for m in EXCLUS):
                 continue
-            titre, sections = sections_html(self.client.get(url).raise_for_status().text)
+            lue = lire_page(self.client.get(url).raise_for_status().text)
+            if not lue.indexable:  # redirection ou page noindex : rien a lire
+                continue
+            lues.append((chemin, lue))
             langue = "en" if chemin == "/en" or chemin.startswith("/en/") else "fr"
+            sections = lue.sections
             if CONTACT.search(chemin):
                 sections = sections_contact(sections)
-            pages.append(Page(chemin, langue, _projet(chemin), titre, tuple(sections)))
-        return pages + self.pages_cv()
+            pages.append(Page(chemin, langue, _projet(chemin), lue.titre, tuple(sections)))
+        return self.ajouter_vues(pages, lues) + self.pages_cv()
+
+    @staticmethod
+    def ajouter_vues(pages: list[Page], lues: list[tuple[str, PageLue]]) -> list[Page]:
+        """Range la vue "technologies par projet" sur la page Projets de sa langue."""
+        for langue, chemin in (("fr", "/projets"), ("en", "/en/projets")):
+            vue = vue_technologies(lues, langue)
+            if vue is None:
+                continue
+            i = next((k for k, p in enumerate(pages) if p.url == chemin), None)
+            if i is None:
+                pages.append(Page(chemin, langue, "projets", vue.titre_page, (vue,)))
+                continue
+            p = pages[i]
+            vue = Section(p.titre, vue.chemin, vue.ancre, vue.texte, vue.type)
+            pages[i] = Page(p.url, p.langue, p.projet, p.titre, (*p.sections, vue))
+        return pages
 
     def pages_cv(self) -> list[Page]:
         """Les CV lies depuis la page Contact. Un lien casse fait echouer l'ingestion."""

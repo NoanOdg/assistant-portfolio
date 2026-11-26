@@ -211,6 +211,16 @@ async def test_le_modele_peut_refuser(fabriquer_agent):
     assert "texte" not in types(evts)
 
 
+async def test_le_marqueur_n_est_jamais_affiche(fabriquer_agent):
+    scenario = [{"appels": [chercher()]}, {"texte": "Le portfolio n'en parle pas. [REFUS]"}]
+    a = await fabriquer_agent(scenario)
+    evts = await evenements(a, QUESTION)
+    assert texte(evts) == "Le portfolio n'en parle pas."
+    a = await fabriquer_agent([{"appels": [chercher()]}, {"texte": "[REFUS] [1]."}])
+    evts = await evenements(a, QUESTION)
+    assert fin(evts)["chemin"] == "refus_modele" and "texte" not in types(evts)
+
+
 async def test_un_chiffre_invente_n_atteint_jamais_le_visiteur(fabriquer_agent):
     scenario = [{"appels": [chercher()]}, {"texte": "Le moniteur détecte 99,9 % des pannes [1]."}]
     a = await fabriquer_agent(scenario)

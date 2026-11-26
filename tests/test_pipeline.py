@@ -61,6 +61,50 @@ async def test_le_modele_peut_refuser(fabriquer_assistant):
     assert "texte" not in types(evts)
 
 
+class GenerateurEnMorceaux:
+    """Rend un texte fixe en fragments donnes, comme un flux coupe n'importe ou."""
+
+    nom = "morceaux"
+
+    def __init__(self, fragments: list[str]) -> None:
+        self.fragments = fragments
+
+    async def rediger(self, consigne, contenu, max_jetons, schema=None):
+        for f in self.fragments:
+            yield Fragment(texte=f)
+        yield Fragment(jetons_entree=10, jetons_sortie=5)
+
+
+def texte_affiche(evts) -> str:
+    return "".join(e.donnees["texte"] for e in evts if e.type == "texte")
+
+
+async def test_le_marqueur_en_fin_de_reponse_n_est_jamais_affiche(fabriquer_assistant):
+    # Cas t31 du 26/11/2026 : "Le portfolio ne parle pas de cette comparaison. [REFUS]".
+    gen = FauxGenerateur("Le portfolio ne parle pas de cette comparaison. [REFUS]")
+    a = await fabriquer_assistant(generateur=gen)
+    evts = await evenements(a, "Le moniteur détecte-t-il les pannes ?")
+    assert texte_affiche(evts) == "Le portfolio ne parle pas de cette comparaison."
+    assert fin(evts)["chemin"] == "reponse"
+
+
+async def test_le_marqueur_coupe_par_le_flux_n_est_jamais_affiche(fabriquer_assistant):
+    gen = GenerateurEnMorceaux(["Le moniteur détecte les pannes", " [RE", "FU", "S] ", "[1]"])
+    a = await fabriquer_assistant(generateur=gen)
+    evts = await evenements(a, "Le moniteur détecte-t-il les pannes ?")
+    texte = texte_affiche(evts)
+    assert "REFUS" not in texte and "[RE" not in texte and "FUS]" not in texte
+    assert texte.startswith("Le moniteur détecte les pannes") and texte.endswith("[1]")
+
+
+async def test_rien_d_utile_autour_du_marqueur_vaut_refus(fabriquer_assistant):
+    for fragments in (["[RE", "FUS] [REFUS]"], [" [refus]", "."], ["[1] ", "[REF", "US]"]):
+        a = await fabriquer_assistant(generateur=GenerateurEnMorceaux(fragments))
+        evts = await evenements(a, "Le moniteur détecte-t-il les pannes ?")
+        assert fin(evts)["chemin"] == "refus_modele", fragments
+        assert "texte" not in types(evts), fragments
+
+
 async def test_un_chiffre_invente_n_atteint_jamais_le_visiteur(fabriquer_assistant):
     gen = FauxGenerateur("Le moniteur détecte 99,9 % des pannes [1].")
     a = await fabriquer_assistant(generateur=gen)

@@ -120,3 +120,23 @@ def test_courriel_masque_par_cloudflare():
     code = f"{cle:02x}" + "".join(f"{ord(c) ^ cle:02x}" for c in adresse)
     assert courriel_protege(code) == adresse
     assert courriel_protege("zz") == ""
+
+
+def test_lieu_en_tete_de_la_ligne_de_coordonnees():
+    # CV du 26/11/2026 : lieu, telephone et courriel sur une seule ligne, sans separateur.
+    propre = retirer_coordonnees(
+        "Villefictive (78) +33 7 00 00 00 00 contact@exemple.test exemple.test"
+    )
+    assert propre == "exemple.test"
+
+
+def test_un_titre_en_capitales_ouvre_un_paragraphe():
+    p = paragraphes(
+        "EXPÉRIENCES PROFESSIONNELLES\nINGÉNIEUR IA | CDD | INSEI | 2026\nUn assistant\n"
+        "CDD : la suite de la ligne\nINGÉNIEUR DATA | ALTERNANCE\nUn premier assistant"
+    )
+    assert p == [
+        "EXPÉRIENCES PROFESSIONNELLES",
+        "INGÉNIEUR IA | CDD | INSEI | 2026 Un assistant CDD : la suite de la ligne",
+        "INGÉNIEUR DATA | ALTERNANCE Un premier assistant",
+    ]

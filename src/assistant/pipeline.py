@@ -8,7 +8,8 @@
    ecrit d'avance, le modele n'est pas appele (en C, seulement si le prefiltre
    est choisi).
 4. Rediger en flux, a partir des seuls passages numerotes, 450 jetons au plus.
-   Si le modele repond [REFUS], le code affiche le refus ecrit d'avance. En
+   Si le modele repond [REFUS] (ou rien d'autre d'utile), le code affiche le
+   refus ecrit d'avance ; un [REFUS] au milieu d'un texte n'est pas affiche. En
    sortie structuree, l'intention donnee par le modele (contact, personnel,
    hors_sujet) fait afficher par le code la carte ou le refus ecrit d'avance.
 5. Filtrer en flux (chiffres, liens, courriels, tirets), puis les sources citees.
@@ -40,7 +41,7 @@ from assistant.filtres import (
     citations_valides,
 )
 from assistant.garde import aiguiller
-from assistant.generation import MARQUEUR_REFUS, Generateur
+from assistant.generation import MARQUEUR, Generateur, utile
 from assistant.modeles import Bilan, Evenement, Morceau, Passage
 from assistant.recherche import Recherche, meilleure_distance
 
@@ -365,14 +366,15 @@ class Assistant:
         bilan.appels_modele = 1
 
         def traiter(texte: str) -> list[Evenement]:
-            """Texte de reponse : retenu tant qu'il peut devenir [REFUS], puis filtre."""
+            """Texte de reponse : retenu tant qu'il ne dit rien d'utile (il peut
+            encore n'etre qu'un [REFUS]), puis filtre."""
             nonlocal recu, demarre, refus_modele, affiche
             recu += texte
             if not demarre:
                 tete = recu.lstrip()
-                if MARQUEUR_REFUS.startswith(tete):
-                    return []  # peut encore devenir [REFUS] : on retient
-                if tete.startswith(MARQUEUR_REFUS):
+                if not utile(tete):
+                    return []  # marqueur, renvoi ou debut de crochet : on retient
+                if MARQUEUR.match(tete):
                     refus_modele = True
                     return []  # on lit la fin du flux pour compter les jetons
                 demarre = True
@@ -436,7 +438,7 @@ class Assistant:
             for e in traiter(reste_json) if reste_json else []:
                 yield e
 
-        if refus_modele or not recu.strip() or recu.strip() == MARQUEUR_REFUS:
+        if refus_modele or not utile(recu):
             yield Evenement(
                 "refus", {"motif": "modele", "texte": textes.texte(langue, "refus_modele")}
             )

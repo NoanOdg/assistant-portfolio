@@ -89,6 +89,7 @@ def calculer(questions: list[QuestionEval], resultats: dict[str, dict]) -> dict:
         for q, x in r
         if x["chemin"] == "reponse" and q.attendu != "carte" and not x.get("carte")
     ]
+    reponses_a_repondre = [(q, x) for q, x in reponses if q.attendu == "repondre"]
     personnels = [(q, x) for q, x in r if q.famille == "personnel"]
 
     def est_refus(x: dict) -> bool:
@@ -105,7 +106,12 @@ def calculer(questions: list[QuestionEval], resultats: dict[str, dict]) -> dict:
             sum(1 for q, x in a_repondre if set(x.get("projets_passages", [])) & set(q.pages)),
             len(a_repondre),
         ),
-        "reponses_sourcees": Taux(sum(1 for _, x in reponses if x.get("citees")), len(reponses)),
+        # Sur les seules questions a repondre : un refus de fausse premisse ou de
+        # competence absente redige par le modele ne cite rien, et c'est voulu
+        # (consigne, section "Refus et fausse premisse").
+        "reponses_sourcees": Taux(
+            sum(1 for _, x in reponses_a_repondre if x.get("citees")), len(reponses_a_repondre)
+        ),
         "chiffres_fideles": Taux(
             sum(1 for _, x in reponses if x.get("chiffres_remplaces", 0) == 0), len(reponses)
         ),

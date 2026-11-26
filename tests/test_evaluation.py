@@ -211,6 +211,27 @@ def test_cartes_hors_des_justes_et_des_reponses_sourcees():
     assert f["contact"]["succes"] == 2  # juste si et seulement si la carte s'affiche
 
 
+def test_reponses_sourcees_sur_les_seules_questions_a_repondre():
+    questions = [
+        _q("a", "repondre", pages=("x",), faits=("f",)),
+        _q("b", "repondre", pages=("x",), faits=("f",)),
+        _q("p", "refuser", famille="fausse_premisse"),
+        _q("s", "refuser", famille="competence_absente"),
+    ]
+    resultats = {
+        "a": _res("reponse", juste=True),
+        # une question a repondre sans source reste un echec de la porte
+        "b": _res("reponse", juste=False, citees=False),
+        # "le portfolio n'en parle pas", sans source : le comportement voulu
+        "p": _res("reponse", refus_correct=True, citees=False),
+        "s": _res("reponse", refus_correct=True, citees=False),
+    }
+    m = calculer(questions, resultats)["mesures"]
+    assert (m["reponses_sourcees"]["succes"], m["reponses_sourcees"]["effectif"]) == (1, 2)
+    # les chiffres restent controles sur toutes les reponses redigees
+    assert m["chiffres_fideles"]["effectif"] == 4
+
+
 def test_jugement_de_carte_par_le_code():
     q = _q("c", "carte", famille="contact")
     assert jugement_carte(q, {"carte": True, "texte": ""}).juste is True

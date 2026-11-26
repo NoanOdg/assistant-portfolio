@@ -39,7 +39,23 @@ def construire(source, decoupage: str = "mots360") -> tuple[list[Morceau], dict]
             if vus[m.id] > 1:  # deux sections homonymes : identifiant rendu unique
                 m = Morceau(**{**m.vers_dict(), "id": f"{m.id}-{vus[m.id]}"})
             morceaux.append(m)
-    return morceaux, source.coordonnees()
+    return sans_doublons(morceaux), source.coordonnees()
+
+
+def sans_doublons(morceaux: list[Morceau]) -> list[Morceau]:
+    """Un meme texte publie sur deux pages (carte de l'accueil et de la page
+    Projets) n'entre qu'une fois, rattache a la page la plus precise : deux
+    copies prendraient deux places parmi les passages transmis."""
+    sortie: list[Morceau] = []
+    place: dict[tuple[str, str], int] = {}
+    for m in morceaux:
+        cle = (m.langue, m.texte)
+        if cle not in place:
+            place[cle] = len(sortie)
+            sortie.append(m)
+        elif len(m.url) > len(sortie[place[cle]].url):
+            sortie[place[cle]] = m
+    return sortie
 
 
 def lire(chemin: Path) -> list[Morceau]:

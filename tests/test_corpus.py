@@ -194,3 +194,124 @@ def test_contenu_reel_du_portfolio():
     assert "docs/fiche-preuves" not in tout
     assert "<Metrique" not in tout
     assert coord["courriel"]
+
+
+# Lecture du site refondu (26/11/2026) : ce qu'un visiteur lit, en texte continu.
+
+PAGE_PROJET = """<!doctype html><html lang="fr"><head><title>Moniteur · Noan</title></head>
+<body><main>
+<div><h1><span class="sr">Moniteur</span><span class="lettres" aria-hidden="true">
+<span>M</span><span>o</span><span>n</span></span></h1>
+<p class="pj-sous">surveillance de pannes</p></div>
+<ul class="ccb"><li><span aria-hidden="true"><i></i></span><div class="cc-n"><span>87,3</span>
+<small>%</small></div><p>des pannes détectées</p><p>Sur des journaux jamais vus.</p></li></ul>
+<dl class="g3a"><div><dt>Cadre</dt><dd>Projet d'école</dd></div>
+<div><dt>Équipe</dt><dd>Trois</dd></div></dl>
+<aside><nav><p>Sur cette page</p><ol><li><a href="#p">Problème</a></li></ol></nav>
+<div class="pile"><p class="pi-tete"><b>Pile technique</b><span>3 briques</span></p>
+<dl><div><dt>Service</dt>
+<dd><span class="nw">Python,</span><span class="nw">Docker</span></dd></div>
+<div><dt>Données</dt><dd><span class="nw">PostgreSQL</span></dd></div></dl></div></aside>
+<details class="som-tel"><summary>Chapitre Sommaire</summary><ol><li><a href="#p">Problème</a></li>
+</ol></details>
+<section id="p" class="chap"><h2 id="h-probleme">Problème</h2>
+<p>Les pannes coûtent cher.</p></section>
+<section id="a" class="chap"><h2 id="h-architecture">Architecture</h2>
+<div class="sf-tete"><span>Deux exemples écrits pour l'illustration</span>
+<button>Rejouer</button></div>
+<div class="etape" hidden><div><p><b>Lire</b><span>Kafka</span></p>
+<p>Le flux est lu en continu.</p>
+<p>Exemple écrit pour l'illustration.</p></div></div>
+<div class="i4"><p>Pannes détectées <small>sur 200 journaux</small></p>
+<p><span aria-hidden="true">87,3</span>
+<span class="sr">Pannes détectées : 87,3 %, un gain.</span></p>
+<span>87,3 %</span></div>
+<table><caption>Deux décisions</caption><thead><tr><th>Décision</th><th>Option écartée</th></tr>
+</thead><tbody><tr><th>Un seuil appris</th><td>Un seuil fixe</td></tr></tbody></table></section>
+</main></body></html>"""
+
+PAGE_LISTE = """<html lang="fr"><head><title>Projets · Noan</title></head><body><main>
+<h1>Projets</h1><ul>
+<li class="pc"><p><span>École</span><span>2025</span></p><h2><a href="/projets/a">Alpha</a></h2>
+<p>Premier projet.</p><div class="ch"><div><span>300</span></div><p>utilisateurs</p></div>
+<div aria-hidden="true"><p>illustration</p></div></li>
+<li class="pc"><p><span>Personnel</span><span>2026</span></p><h2><a href="/projets/b">Beta</a></h2>
+<p>Second projet.</p></li></ul>
+<p><a href="/parcours">Voir le parcours</a></p></main></body></html>"""
+
+
+def test_lecture_d_une_page_projet():
+    from assistant.corpus.lecture import lire_page
+
+    lue = lire_page(PAGE_PROJET)
+    assert lue.titre == "Moniteur : surveillance de pannes" and lue.nom == "Moniteur"
+    par_chemin = {s.chemin: s for s in lue.sections}
+    tout = "\n".join(s.texte for s in lue.sections)
+    # titres lettre par lettre, sommaires et commandes d'interface : jamais lus
+    assert "M o n" not in tout and "Sommaire" not in tout and "Sur cette page" not in tout
+    assert "Rejouer" not in tout and "illustration" not in tout
+    assert "Problème" not in tout  # le titre du chapitre est dans le chemin, pas dans le texte
+    tete = par_chemin[()].texte
+    assert "87,3 % des pannes détectées. Sur des journaux jamais vus." in tete
+    assert "Cadre : Projet d'école. Équipe : Trois." in tete
+    pile = par_chemin[("Pile technique",)]
+    assert pile.type == "pile"
+    assert pile.texte.startswith("Pile technique du projet Moniteur (3 briques).")
+    assert "Service : Python, Docker." in pile.texte
+    archi = par_chemin[("Architecture",)].texte
+    assert "Lire (Kafka) : Le flux est lu en continu." in archi  # etape cachee, ouverte au clic
+    assert "Pannes détectées (sur 200 journaux)" in archi
+    assert archi.count("87,3") == 1  # le doublon visuel du chiffre est retire
+    assert "Décision : Un seuil appris. Option écartée : Un seuil fixe." in archi
+    assert lue.pile is not None and lue.pile.lignes[0] == ("Service", ["Python", "Docker"])
+
+
+def test_chaque_carte_garde_ce_qui_precede_son_titre():
+    from assistant.corpus.lecture import lire_page
+
+    sections = {s.chemin: s.texte for s in lire_page(PAGE_LISTE).sections}
+    assert sections[("Alpha",)].startswith("École 2025")
+    assert "300 utilisateurs" in sections[("Alpha",)]
+    assert "Personnel" not in sections[("Alpha",)]
+    assert sections[("Beta",)].startswith("Personnel 2026")
+    assert "Voir le parcours" not in "\n".join(sections.values())  # bouton d'action
+
+
+def test_vue_technologies_derivee_des_piles():
+    from assistant.corpus.lecture import lire_page
+    from assistant.corpus.site import SourceSite
+
+    lues = [("/projets/moniteur", lire_page(PAGE_PROJET))]
+    liste = Page("/projets", "fr", "projets", "Projets", (Section("Projets", (), "", "x"),))
+    pages = SourceSite.ajouter_vues([liste], lues)
+    vue = pages[0].sections[-1]
+    assert vue.chemin == ("Technologies par projet",) and vue.type == "pile"
+    assert "Moniteur (surveillance de pannes) : Python, Docker, PostgreSQL." in vue.texte
+    assert all(p.langue == "fr" for p in pages)  # aucune pile anglaise : aucune vue anglaise
+
+
+def test_redirection_et_noindex_ignorees():
+    from assistant.corpus.lecture import lire_page
+
+    redirection = (
+        '<html><head><meta http-equiv="refresh" content="0; url=/b"></head><body></body></html>'
+    )
+    assert lire_page(redirection).indexable is False
+    assert (
+        lire_page('<html><head><meta name="robots" content="noindex"></head></html>').indexable
+        is False
+    )
+    assert lire_page(PAGE_PROJET).indexable is True
+
+
+def test_un_texte_publie_deux_fois_entre_une_fois():
+    from assistant.corpus.ingestion import sans_doublons
+    from assistant.modeles import Morceau
+
+    def m(url, texte, ident):
+        return Morceau(ident, url, "", "t", "c", texte, "fr", "p", "prose", "e")
+
+    gardes = sans_doublons(
+        [m("/", "Carte Alpha", "1"), m("/projets", "Carte Alpha", "2"), m("/", "Autre", "3")]
+    )
+    assert [(x.id, x.url) for x in gardes] == [("2", "/projets"), ("3", "/")]

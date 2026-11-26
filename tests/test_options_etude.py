@@ -90,8 +90,12 @@ def test_les_defauts_reproduisent_le_service_servi(reglages_test):
     assert r.corpus["decoupage"] == "mots360"
     assert r.corpus["inclure_contact"] is False and r.corpus["compact"] is False
     assert r.moteur["tache_question"] == "RETRIEVAL_QUERY" and not r.moteur["titre_document"]
-    # La consigne servie ne change pas : meme texte, meme empreinte.
-    assert charger_consigne("v1") == CONSIGNE_DEFAUT.read_text(encoding="utf-8")
+    # La consigne servie est le fichier v1, sans son commentaire de tete (reecrite
+    # le 26/11/2026) : rien d'autre n'y est ajoute.
+    brut = CONSIGNE_DEFAUT.read_text(encoding="utf-8")
+    servie = charger_consigne("v1")
+    assert "<!--" not in servie and brut.endswith(servie)
+    assert servie.startswith("Tu es l'assistant du portfolio")
     p = parametres(r)
     assert (p.tarif_entree, p.tarif_sortie, p.tarif_cache) == (0.25, 1.50, 0.025)
     r.verifier()

@@ -37,7 +37,14 @@ VOIE = re.compile(rf"\b\d{{1,4}}(?:\s?(?:bis|ter))?,?\s+(?:{VOIES})\b[^\n]*", re
 CODE_POSTAL = re.compile(r"(?<![\d,.])\d{5}(?![\d,.])\s+[A-ZÀ-Ý][^\n]*")
 # Ligne de lieu du bloc de coordonnees : "Commune (Region)", "Paris area (France)".
 LIEU = re.compile(r"^[A-ZÀ-Ý][\w'’ -]{1,40}\s*\([A-ZÀ-Ý][\w'’ -]{1,40}\)$")
+# Le meme lieu en tete de la ligne de coordonnees : "Commune (78) +33 ...".
+LIEU_EN_TETE = re.compile(
+    r"^[A-ZÀ-Ý][\w'’ -]{1,40}?\s*\((?:\d{2,3}|[A-ZÀ-Ý][\w'’ -]{1,40})\)(?=\s|$)"
+)
 VOISINAGE_LIEU = 2  # lignes autour d'un telephone ou d'un courriel
+# Titre de rubrique ou d'emploi en capitales ("EXPERIENCES", "INGENIEUR IA | CDD") :
+# il ouvre un paragraphe, pour que le CV se coupe entre deux emplois.
+CAPITALES = re.compile(r"^[A-ZÀ-Ý]{2,}[A-ZÀ-Ý'’-]*\s+[A-ZÀ-Ý]{2,}[A-ZÀ-Ý'’-]*(?:\s|$)")
 TIRETS = re.compile(r"\s*[\N{EN DASH}\N{EM DASH}]\s*")
 SEPARATEUR = re.compile(r"(\s+[·|•]\s+)")
 
@@ -72,6 +79,8 @@ def _est_espacee(ligne: str) -> bool:
 def _nettoyer_segment(segment: str, bloc_contact: bool) -> str:
     if bloc_contact and LIEU.match(segment.strip()):
         return ""
+    if bloc_contact:
+        segment = LIEU_EN_TETE.sub("", segment.strip())
     for motif in (TELEPHONE, COURRIEL, VOIE, CODE_POSTAL):
         segment = motif.sub("", segment)
     return segment.strip()
@@ -108,6 +117,9 @@ def paragraphes(texte: str) -> list[str]:
         if _est_espacee(ligne):
             blocs.append([_despacer(ligne)])
             blocs.append([])
+            continue
+        if CAPITALES.match(ligne):
+            blocs.append([ligne])
             continue
         if ligne.startswith(("- ", "• ")) or not blocs:
             blocs.append([ligne.lstrip("-• ").strip()])

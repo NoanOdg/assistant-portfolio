@@ -32,7 +32,7 @@ from assistant.filtres import (
     chiffres_non_attribues,
     citations_valides,
 )
-from assistant.generation import MARQUEUR_REFUS, usage_vertex
+from assistant.generation import MARQUEUR, MARQUEUR_REFUS, usage_vertex, utile
 from assistant.modeles import Bilan, Evenement, Morceau, Passage
 from assistant.outils import CHERCHER, Corpus, Outils
 from assistant.pipeline import Assistant, Parametres, compter
@@ -425,9 +425,9 @@ class AssistantAgent(Assistant):
                         if not demarre:
                             retenu += frag.texte
                             tete = retenu.lstrip()
-                            if MARQUEUR_REFUS.startswith(tete):
-                                continue
-                            if tete.startswith(MARQUEUR_REFUS):
+                            if not utile(tete):
+                                continue  # peut encore n'etre qu'un [REFUS]
+                            if MARQUEUR.match(tete):
                                 refus_modele = True
                                 continue
                             demarre, morceau, retenu = True, tete, ""
@@ -440,7 +440,7 @@ class AssistantAgent(Assistant):
                     historique.append(
                         Message("modele", texte=texte_tour, appels=appels, brut=brut_tour)
                     )
-                    if not matiere.passages and texte_tour.strip().startswith(MARQUEUR_REFUS):
+                    if not matiere.passages and MARQUEUR.match(texte_tour):
                         refus_modele = True
                     if refus_modele:
                         for e in refus("modele", "refus_modele", "refus_modele"):
@@ -526,7 +526,7 @@ class AssistantAgent(Assistant):
             ]:
                 yield e
             return
-        if not demarre and retenu.strip() in {"", MARQUEUR_REFUS}:
+        if not demarre and not utile(retenu):
             for e in refus("modele", "refus_modele", "refus_modele"):
                 yield e
             return
