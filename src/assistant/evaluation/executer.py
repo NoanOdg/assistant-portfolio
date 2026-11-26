@@ -12,6 +12,11 @@ K fois (un fichier par passage : sortie-r1.json, sortie-r2.json...) :
         --repetitions 2 --parallele 2 --juge vertex --version-juge v2 \
         --fichier-jeu evaluation/jeu/questions.yaml --sortie build/comparaison/c0.json
 Raccourcis gardes : --mode tout_le_corpus (C), --branche agent (A).
+Jeu multi-tours (memoire de conversation) : chaque question est jouee apres ses
+`tours`, dans une conversation neuve a chaque essai ; les conversations entre
+elles tournent en parallele, les tours d'une conversation a la suite :
+    assistant-evaluer --cible local --juge vertex --version-juge v2 \
+        --fichier-jeu evaluation/jeu/conversations.yaml --sortie build/conversations.json
 Reserve scellee, une seule fois :
     assistant-evaluer --jeu reserve --motif "avant publication des chiffres" ...
 
@@ -29,6 +34,7 @@ import datetime as dt
 import json
 import os
 import sys
+import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Protocol
@@ -61,6 +67,9 @@ CLES_BILAN = (
     "appels_outils",
     "aiguillage",
     "intention",
+    "memoire",
+    "reecriture_ms",
+    "cout_reecriture_usd",
 )
 
 
@@ -80,15 +89,27 @@ class ErreurService(RuntimeError):
 
 
 class Cible(Protocol):
-    def poser(self, question: str, langue: str) -> AsyncIterator[Evenement]: ...
+    def poser(
+        self, question: str, langue: str, conversation: str | None = None
+    ) -> AsyncIterator[Evenement]: ...
 
 
 class CibleLocale:
-    def __init__(self, assistant) -> None:
-        self.assistant = assistant
+    """En processus. `memoire` : celle des composants (None : memoire coupee)."""
 
-    async def poser(self, question: str, langue: str) -> AsyncIterator[Evenement]:
-        async for e in self.assistant.repondre(question, langue, diagnostic=True):
+    def __init__(self, assistant, memoire=None) -> None:
+        self.assistant = assistant
+        self.memoire = memoire
+
+    async def poser(
+        self, question: str, langue: str, conversation: str | None = None
+    ) -> AsyncIterator[Evenement]:
+        extra = (
+            {"conversation": self.memoire.ouvrir("eval-" + conversation)}
+            if conversation and self.memoire is not None
+            else {}
+        )
+        async for e in self.assistant.repondre(question, langue, diagnostic=True, **extra):
             yield e
 
 
@@ -100,12 +121,17 @@ class CibleHttp:
         self.jeton = jeton
         self.client = client or httpx.AsyncClient(timeout=60)
 
-    async def poser(self, question: str, langue: str) -> AsyncIterator[Evenement]:
+    async def poser(
+        self, question: str, langue: str, conversation: str | None = None
+    ) -> AsyncIterator[Evenement]:
+        entetes = {"X-Jeton-Evaluation": self.jeton}
+        if conversation:
+            entetes["X-Conversation"] = conversation
         async with self.client.stream(
             "POST",
             f"{self.url}/question",
             json={"question": question, "langue": langue},
-            headers={"X-Jeton-Evaluation": self.jeton},
+            headers=entetes,
         ) as r:
             r.raise_for_status()
             type_, donnees = "", []
@@ -119,7 +145,30 @@ class CibleHttp:
                     type_, donnees = "", []
 
 
+async def jouer_tours(cible: Cible, q: jeu_mod.QuestionEval) -> tuple[str | None, list[dict]]:
+    """Les questions precedentes, a la suite, dans une conversation neuve.
+    Rend l'identifiant de la conversation et ce qu'elles ont recu (pour relire)."""
+    if not q.tours:
+        return None, []
+    conversation = f"{q.id}-{uuid.uuid4().hex[:12]}"
+    joues = []
+    for t in q.tours:
+        tour = {"question": t, "texte": "", "chemin": "inconnu"}
+        async for e in cible.poser(t, q.langue, conversation):
+            if e.type in {"texte", "refus"}:
+                tour["texte"] += e.donnees.get("texte", "")
+            elif e.type == "diagnostic":
+                tour["question_traitee"] = e.donnees.get("question_traitee", "")
+            elif e.type == "fin":
+                tour["chemin"] = e.donnees.get("chemin", "inconnu")
+        if tour["chemin"] == "erreur":
+            raise ErreurService("le service a repondu par une erreur (tour precedent)")
+        joues.append(tour)
+    return conversation, joues
+
+
 async def resultat(cible: Cible, q: jeu_mod.QuestionEval) -> dict:
+    conversation, joues = await jouer_tours(cible, q)
     res: dict = {
         "id": q.id,
         "question": q.question,
@@ -134,8 +183,16 @@ async def resultat(cible: Cible, q: jeu_mod.QuestionEval) -> dict:
         "projets_passages": [],
         "chemin": "inconnu",
     }
+    if q.tours:
+        res["tours"] = joues
     cites: list[int] | None = None
-    async for e in cible.poser(q.question, q.langue):
+    # Question isolee : l'appel d'avant la memoire, a l'identique.
+    flux = (
+        cible.poser(q.question, q.langue, conversation)
+        if conversation
+        else cible.poser(q.question, q.langue)
+    )
+    async for e in flux:
         d = e.donnees
         if e.type == "texte" or e.type == "refus":
             res["texte"] += d["texte"]
@@ -159,6 +216,8 @@ async def resultat(cible: Cible, q: jeu_mod.QuestionEval) -> dict:
             ]
             res["architecture"] = d.get("architecture", "")
             res["brut"] = d.get("brut", "")
+            if q.tours:
+                res["question_traitee"] = d.get("question_traitee", "")
             cites = d.get("cites")
             if cites is None:  # service plus ancien : on relit les renvois affiches
                 cites = citations_valides(d.get("affiche", ""), len(d["passages"]))
@@ -331,7 +390,7 @@ async def principal(a: argparse.Namespace) -> int:
     else:
         brut, _ = charger_corpus_brut(r)
         c = await construire(r)
-        cible = CibleLocale(c.assistant)
+        cible = CibleLocale(c.assistant, c.memoire)
         cfg = {
             "superpositions": [str(p) for p in a.config],
             "empreinte": r.empreinte,

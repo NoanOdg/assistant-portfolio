@@ -13,6 +13,8 @@ from assistant.config import RACINE
 
 DOSSIER = RACINE / "evaluation"
 JEU_TRAVAIL = DOSSIER / "jeu" / "questions.yaml"
+# Jeu multi-tours : chaque question est jouee apres ses `tours`, dans la meme conversation.
+JEU_CONVERSATIONS = DOSSIER / "jeu" / "conversations.yaml"
 RESERVE = DOSSIER / "jeu" / "reserve-scellee.yaml"
 # Brouillons du jeu v2 : ni scelles ni joues par la CI tant que Noan ne les a pas valides.
 JEU_V2_BROUILLON = DOSSIER / "jeu" / "questions-v2-brouillon.yaml"
@@ -43,6 +45,17 @@ FAMILLES = {
     "competence_absente",
     "renseignement",  # disponibilite, contrat, lieu, langues, formation
     "incomprehensible",  # charabia, question sans objet : nature de refus de l'INSEI
+    # Jeu multi-tours (conversations.yaml) : une famille par piege de la memoire.
+    "suite_elliptique",
+    "traduction",
+    "reformulation",
+    "changement_sujet",
+    "hors_sujet_milieu",
+    "retour_sujet",
+    "comparaison",
+    "suite_refus",
+    "attaque_multitours",
+    "autonome_apres_historique",
 }
 ATTENDUS = {"repondre", "carte", "refuser"}
 
@@ -69,10 +82,24 @@ class QuestionEval:
     # calculent par bootstrap groupe. Vide : la question est son propre groupe.
     groupe: str = ""
     note: str = ""
+    # Questions jouees avant, dans la meme conversation (jeu multi-tours).
+    tours: tuple[str, ...] = ()
 
     @property
     def a_repondre(self) -> bool:
         return self.attendu in {"repondre", "carte"}
+
+    @property
+    def question_jugee(self) -> str:
+        """La question telle que le juge la lit : precedee des questions de la
+        conversation s'il y en a. Sans tours, la question seule (jeu isole inchange)."""
+        if not self.tours:
+            return self.question
+        avant = " ".join(f"{i}) {t}" for i, t in enumerate(self.tours, 1))
+        return (
+            f"Questions précédentes de la même conversation, dans l'ordre : {avant}\n"
+            f"Question évaluée : {self.question}"
+        )
 
     @property
     def faits_cles(self) -> tuple[str, ...]:
@@ -105,6 +132,7 @@ def charger(chemin: Path) -> list[QuestionEval]:
             a_valider=bool(d.get("a_valider", False)),
             groupe=str(d.get("groupe") or d["id"]),
             note=str(d.get("note") or ""),
+            tours=tuple(str(t).strip() for t in d.get("tours") or ()),
         )
         if q.langue not in {"fr", "en"} or q.famille not in FAMILLES or q.attendu not in ATTENDUS:
             raise ValueError(f"question {q.id} invalide")
@@ -112,6 +140,8 @@ def charger(chemin: Path) -> list[QuestionEval]:
             raise ValueError(f"question {q.id} : pages attendues manquantes")
         if q.attendu == "repondre" and not q.faits_cles:
             raise ValueError(f"question {q.id} : faits attendus manquants")
+        if any(not t or len(t) > 500 for t in q.tours):
+            raise ValueError(f"question {q.id} : tour vide ou de plus de 500 caracteres")
         questions.append(q)
     ids = [q.id for q in questions]
     if len(ids) != len(set(ids)):

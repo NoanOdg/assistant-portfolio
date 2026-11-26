@@ -6,6 +6,11 @@
    jeton de session signe (HMAC, 30 min). Aucun tiers : le script du widget est
    servi par le site, la verification est locale.
 2. Chaque question porte ce jeton. Aucun cookie.
+   Le jeton porte deux identifiants tires au hasard : `n`, propre au jeton, et
+   `c`, celui de la conversation (memoire.py). Au renouvellement, POST /session
+   peut recevoir l'ancien jeton : signature valide et expire depuis moins de
+   `duree_s`, sa conversation est reprise par le nouveau jeton (renouvellement
+   glissant). Sinon le nouveau jeton ouvre une conversation neuve.
 3. L'evaluation de la CI presente un jeton d'identite Google du compte de
    deploiement : elle passe sans ALTCHA et sur un plafond a part.
 """
@@ -21,6 +26,7 @@ import secrets
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Protocol
 
 import altcha
@@ -30,6 +36,13 @@ class JetonInvalide(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class Session:
+    nonce: str  # propre au jeton
+    conversation: str  # identifiant de la conversation (memoire.py), repris au renouvellement
+    expire: float
+
+
 class Sessions:
     def __init__(self, cle: bytes, duree_s: int = 1800) -> None:
         if len(cle) < 16:
@@ -37,13 +50,19 @@ class Sessions:
         self._cle = cle
         self.duree_s = duree_s
 
-    def emettre(self, maintenant: float | None = None) -> str:
-        charge = {"exp": int((maintenant or time.time()) + self.duree_s), "n": secrets.token_hex(8)}
+    def emettre(self, maintenant: float | None = None, conversation: str | None = None) -> str:
+        nonce = secrets.token_hex(8)
+        charge = {
+            "exp": int((maintenant or time.time()) + self.duree_s),
+            "n": nonce,
+            "c": conversation or secrets.token_hex(8),
+        }
         corps = base64.urlsafe_b64encode(json.dumps(charge).encode()).decode().rstrip("=")
         sig = hmac.new(self._cle, corps.encode(), hashlib.sha256).hexdigest()
         return f"{corps}.{sig}"
 
-    def verifier(self, jeton: str, maintenant: float | None = None) -> None:
+    def _lire(self, jeton: str) -> Session:
+        """Signature verifiee, expiration non verifiee."""
         try:
             corps, sig = jeton.split(".", 1)
         except ValueError as e:
@@ -51,9 +70,31 @@ class Sessions:
         attendu = hmac.new(self._cle, corps.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, attendu):
             raise JetonInvalide("signature")
-        charge = json.loads(base64.urlsafe_b64decode(corps + "=" * (-len(corps) % 4)))
-        if charge["exp"] < (maintenant or time.time()):
+        try:
+            charge = json.loads(base64.urlsafe_b64decode(corps + "=" * (-len(corps) % 4)))
+            nonce = str(charge["n"])
+            # Jeton d'avant la memoire : sa conversation est son nonce.
+            return Session(nonce, str(charge.get("c") or nonce), float(charge["exp"]))
+        except (ValueError, KeyError, TypeError) as e:
+            raise JetonInvalide("charge") from e
+
+    def verifier(self, jeton: str, maintenant: float | None = None) -> Session:
+        s = self._lire(jeton)
+        if s.expire < (maintenant or time.time()):
             raise JetonInvalide("expire")
+        return s
+
+    def conversation_precedente(self, jeton: str, maintenant: float | None = None) -> str | None:
+        """Conversation d'un ancien jeton presente au renouvellement : signature
+        valide, expire depuis moins de `duree_s`. None sinon (jamais d'erreur :
+        le visiteur obtient alors une conversation neuve)."""
+        try:
+            s = self._lire(jeton)
+        except JetonInvalide:
+            return None
+        if s.expire + self.duree_s < (maintenant or time.time()):
+            return None
+        return s.conversation
 
 
 class AntiRobot(Protocol):

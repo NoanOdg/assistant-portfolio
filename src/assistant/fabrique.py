@@ -21,6 +21,7 @@ from assistant.limites import (
     CompteurQuotidien,
     LimiteurVisiteur,
 )
+from assistant.memoire import Memoire
 from assistant.modeles import Morceau
 from assistant.pipeline import Assistant, Parametres, charger_consigne
 from assistant.recherche import (
@@ -29,6 +30,13 @@ from assistant.recherche import (
     RechercheHybride,
     RechercheMemoire,
     RechercheParente,
+)
+from assistant.reecriture import (
+    FauxReecrivain,
+    Reecrivain,
+    ReglagesMemoire,
+    VertexReecrivain,
+    noms_du_corpus,
 )
 from assistant.session import (
     Altcha,
@@ -82,6 +90,8 @@ class Composants:
     anti_robot: AntiRobot
     identite_eval: IdentiteEvaluation
     journal_questions: JournalQuestions
+    # Memoire de conversation (None : coupee, ou branche agent).
+    memoire: Memoire | None = None
     # Empreintes du corpus lu (fichier entier) et du corpus servi (apres reglages).
     empreinte_corpus_source: str = ""
     empreinte_corpus: str = ""
@@ -161,6 +171,34 @@ def construire_modele_agent(r: Reglages) -> ModeleAgent:
         m["modele_redaction"],
         float(m["temperature"]),
         str(m["reflexion"]),
+    )
+
+
+def construire_reecrivain(r: Reglages) -> Reecrivain:
+    """Le modele de redaction par defaut ; un autre modele prend son niveau de
+    reflexion le plus bas parmi ceux qu'il accepte."""
+    if r.mode == "local":
+        return FauxReecrivain()
+    m = r.moteur
+    modele = str(r.memoire.get("modele") or m["modele_redaction"])
+    if modele == m["modele_redaction"]:
+        reflexion = str(m["reflexion"])
+    else:
+        reflexion = (r.modeles.get(modele, {}).get("reflexions") or [""])[0]
+    return VertexReecrivain(
+        m["projet_gcp"], m["region_redaction"], modele, reflexion, r.tarif(modele)
+    )
+
+
+def reglages_memoire(r: Reglages, morceaux: list[Morceau]) -> ReglagesMemoire:
+    mem, d = r.memoire, ReglagesMemoire()
+    return ReglagesMemoire(
+        tours=int(mem.get("tours", d.tours)),
+        caracteres_reponse=int(mem.get("caracteres_reponse", d.caracteres_reponse)),
+        delai_reecriture_s=float(mem.get("delai_reecriture_s", d.delai_reecriture_s)),
+        jetons_reecriture=int(mem.get("jetons_reecriture", d.jetons_reecriture)),
+        passages_comparaison=int(mem.get("passages_comparaison", d.passages_comparaison)),
+        connus=noms_du_corpus(morceaux),
     )
 
 
@@ -264,6 +302,10 @@ async def construire(
         else IdentiteRefusee()
     )
     assistant: Assistant
+    memoire: Memoire | None = None
+    if r.memoire_active:
+        rm = reglages_memoire(r, morceaux)
+        memoire = Memoire(rm.tours, rm.caracteres_reponse, int(lim["duree_session_s"]))
     if r.branche == "agent":
         assistant = AssistantAgent(
             embedder,
@@ -285,6 +327,9 @@ async def construire(
                 str(m.get("consigne", "v1")), bool(r.aiguillage.get("etiquette_modele"))
             ),
             corpus=morceaux if r.architecture == "C" else None,
+            reecrivain=construire_reecrivain(r) if memoire is not None else None,
+            memoire=rm if memoire is not None else None,
+            morceaux=morceaux if memoire is not None else None,
         )
     return Composants(
         reglages=r,
@@ -297,6 +342,7 @@ async def construire(
         anti_robot=anti_robot,
         identite_eval=identite,
         journal_questions=journal_q,
+        memoire=memoire,
         empreinte_corpus_source=source or empreinte_corpus(morceaux),
         empreinte_corpus=empreinte_corpus(morceaux),
     )

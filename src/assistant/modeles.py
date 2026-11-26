@@ -103,3 +103,10 @@ class Bilan:
     # Qui a aiguille : "code" (mots-cles), "modele" (etiquette en sortie structuree).
     aiguillage: str = ""
     intention: str = ""  # etiquette lue dans la sortie du modele, si demandee
+    # Memoire de conversation : "" (premier tour, ou memoire coupee), suite,
+    # nouveau_sujet, transformation, comparaison, repli (question d'origine
+    # apres une reecriture refusee ou en echec). Hors liste blanche du journal.
+    memoire: str = ""
+    reecriture_ms: float | None = None
+    jetons_reecriture: int = 0  # entree et sortie de l'appel de reecriture
+    cout_reecriture_usd: float = 0.0  # compris dans cout_usd

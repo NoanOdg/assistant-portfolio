@@ -139,6 +139,7 @@ class Reglages:
     altcha: dict = field(default_factory=dict)
     aiguillage: dict = field(default_factory=dict)
     refus: dict = field(default_factory=dict)
+    memoire: dict = field(default_factory=dict)
     modeles: dict = field(default_factory=dict)
     superpositions: tuple[str, ...] = ()
     secrets: dict = field(default_factory=dict, repr=False)
@@ -163,6 +164,11 @@ class Reglages:
         if self.branche == "agent":
             return "A"
         return "C" if self.mode_recherche == "tout_le_corpus" else "B"
+
+    @property
+    def memoire_active(self) -> bool:
+        """Memoire de conversation : branche chemin seulement."""
+        return bool(self.memoire.get("active")) and self.branche == "chemin"
 
     @property
     def seuil_distance(self) -> float:
@@ -190,6 +196,7 @@ class Reglages:
             "altcha": self.altcha,
             "aiguillage": self.aiguillage,
             "refus": self.refus,
+            "memoire": self.memoire,
             "modeles": self.modeles,
         }
 
@@ -245,6 +252,14 @@ class Reglages:
             raise ValueError("recherche.hybride n'a pas d'objet en tout_le_corpus")
         if self.refus.get("prefiltre_seuil") and self.architecture != "C":
             raise ValueError("refus.prefiltre_seuil vaut pour tout_le_corpus (en B le seuil joue)")
+        mem = self.memoire
+        if mem.get("active"):
+            if int(mem.get("tours", 3)) < 1 or int(mem.get("caracteres_reponse", 300)) < 50:
+                raise ValueError("memoire : tours >= 1 et caracteres_reponse >= 50")
+            if not 0 < float(mem.get("delai_reecriture_s", 4)) <= 15:
+                raise ValueError("memoire.delai_reecriture_s : entre 0 et 15 s")
+            if mem.get("modele"):
+                self.tarif(str(mem["modele"]))
         modele = m["modele_redaction"]
         self.tarif(modele)
         permises = self.modeles.get(modele, {}).get("reflexions")
@@ -257,7 +272,7 @@ class Reglages:
 
 
 SECTIONS = ("moteur", "corpus", "recherche", "limites", "securite", "journal", "tarifs", "site")
-SECTIONS_FACULTATIVES = ("agent", "altcha", "aiguillage", "refus", "modeles")
+SECTIONS_FACULTATIVES = ("agent", "altcha", "aiguillage", "refus", "memoire", "modeles")
 
 
 def charger(

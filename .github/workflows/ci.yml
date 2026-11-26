@@ -46,6 +46,9 @@ jobs:
       - run: uv run assistant-ingerer --source mdx --contenu tests/donnees/portfolio --sortie build/corpus.jsonl
       - run: uv run assistant-evaluer --cible local --juge heuristique --sortie build/eval-locale.json
       - run: uv run assistant-porte --resultats build/eval-locale.json --profil local
+      # Jeu multi-tours : le harnais des conversations tourne avec le faux reecrivain.
+      - run: uv run assistant-evaluer --cible local --juge heuristique --fichier-jeu evaluation/jeu/conversations.yaml --sortie build/conversations-locale.json
+      - run: uv run assistant-porte --resultats build/conversations-locale.json --profil conversations_local
 
   terraform:
     runs-on: ubuntu-latest

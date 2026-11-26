@@ -152,6 +152,15 @@ jobs:
             --sortie "$SORTIES/$NOM.json" | tee "$SORTIES/$NOM.txt"
           { echo "## $NOM : $REPETITIONS passage(s)"; echo '```'; cat "$SORTIES/$NOM.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Porte du jeu multi-tours (memoire de conversation)
+        if: inputs.operation == 'evaluer' && contains(inputs.fichier_jeu, 'conversations')
+        run: |
+          set -o pipefail
+          for f in "$SORTIES/$NOM".json "$SORTIES/$NOM"-r*.json; do
+            [ -f "$f" ] || continue
+            uv run assistant-porte --resultats "$f" --profil conversations | tee -a "$SORTIES/$NOM-porte.txt"
+          done
+
       - name: Bruit de la base (sigma et G)
         if: inputs.operation == 'evaluer' && inputs.base_run_id == '' && fromJSON(inputs.repetitions) >= 3
         run: |

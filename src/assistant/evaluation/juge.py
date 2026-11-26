@@ -139,7 +139,7 @@ def contenu_juge(
     """Le texte envoye au juge v1. Fonction pure : testee hors ligne."""
     return consigne.format(
         date=date.isoformat(),
-        question=q.question,
+        question=q.question_jugee,
         attendu=q.attendu,
         faits=_liste(q.faits_cles, "(aucun)"),
         passages=_passages(resultat, index),
@@ -179,7 +179,7 @@ def contenu_juge_v2(
     return consigne.format(
         reference=reference(q, resultat, index),
         date=date.isoformat(),
-        question=q.question,
+        question=q.question_jugee,
         attendu=q.attendu,
         faits=_liste(q.faits_cles, "(aucun)"),
         transmis=transmis(resultat, index),

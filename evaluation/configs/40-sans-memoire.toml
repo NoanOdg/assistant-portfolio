@@ -1,0 +1,5 @@
+# Memoire de conversation coupee : chaque question est un premier tour. Joue sur
+# evaluation/jeu/conversations.yaml, mesure ce que la memoire apporte ; sur
+# questions.yaml, doit rendre exactement le service d'avant la memoire.
+[memoire]
+active = false

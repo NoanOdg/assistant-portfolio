@@ -1,17 +1,22 @@
 """API HTTP : FastAPI, reponses en flux SSE.
 
     GET  /defi      defi ALTCHA signe (preuve de travail, expire vite)
-    POST /session   solution ALTCHA -> jeton de session signe (30 min)
+    POST /session   solution ALTCHA (+ ancien jeton, facultatif) -> jeton de
+                    session signe (30 min), conversation reprise ou neuve
     POST /question  question + langue de la page -> flux d'evenements SSE
     GET  /sante     sonde de vie et de disponibilite
 
 Contrat complet pour le widget du site : docs/api-widget.md.
 
-Evenements du flux : etape, texte, sources, carte, refus, erreur, fin
+Evenements du flux : conversation (memoire), etape, texte, sources, carte, refus, erreur, fin
 (et diagnostic, pour l'evaluation seulement). En public, `fin` ne porte que
 l'identifiant de trace : le bilan (cout, jetons, distance du meilleur passage,
 chemin) aiderait a sonder le seuil de refus. Il reste dans le journal, et dans
 le flux de l'evaluation (jeton d'identite Google du compte de deploiement).
+
+Memoire de conversation (memoire.py) : la cle est l'identifiant de
+conversation du jeton. L'evaluation, qui n'a pas de jeton de session, nomme sa
+conversation par l'en-tete X-Conversation, lu seulement avec X-Jeton-Evaluation.
 """
 
 from __future__ import annotations
@@ -40,11 +45,18 @@ VERSION = "0.1.0"
 class DemandeSession(BaseModel):
     # Charge ALTCHA : base64 du JSON {"challenge": ..., "solution": ...}.
     altcha: str = Field(min_length=1, max_length=4096)
+    # Jeton precedent, au renouvellement : sa conversation est reprise s'il est
+    # signe, expire depuis moins de 30 min, et si elle a servi depuis moins de 30 min.
+    precedente: str = Field(default="", max_length=1024)
 
 
 class Question(BaseModel):
     question: str = Field(min_length=1, max_length=500)
     langue: Literal["fr", "en"] = "fr"
+
+
+# Identifiant de conversation de l'evaluation (en-tete X-Conversation).
+CONVERSATION_EVAL = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def fin_publique(e: Evenement, trace: str, evaluation: bool) -> Evenement:
@@ -133,8 +145,17 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
                 status_code=403,
                 headers={"Cache-Control": "no-store"},
             )
+        reprise = None
+        if demande.precedente and c.memoire is not None:
+            ancienne = c.sessions.conversation_precedente(demande.precedente)
+            if ancienne and c.memoire.active(ancienne):
+                reprise = ancienne
         return JSONResponse(
-            {"session": c.sessions.emettre(), "expire_dans": c.sessions.duree_s},
+            {
+                "session": c.sessions.emettre(conversation=reprise),
+                "expire_dans": c.sessions.duree_s,
+                "reprise": reprise is not None,
+            },
             headers={"Cache-Control": "no-store"},
         )
 
@@ -144,15 +165,17 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
         request: Request,
         authorization: str = Header(default=""),
         x_jeton_evaluation: str = Header(default=""),
+        x_conversation: str = Header(default=""),
         x_cloud_trace_context: str = Header(default=""),
     ):
         c: Composants = request.app.state.c
         r = c.reglages
         evaluation = bool(x_jeton_evaluation) and c.identite_eval.verifier(x_jeton_evaluation)
+        cle_conversation = ""
         if not evaluation:
             jeton = authorization.removeprefix("Bearer ").strip()
             try:
-                c.sessions.verifier(jeton)
+                cle_conversation = c.sessions.verifier(jeton).conversation
             except (JetonInvalide, ValueError):
                 raise HTTPException(status_code=401, detail="session absente ou expiree") from None
             motif = c.limiteur.autoriser(
@@ -172,6 +195,18 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
             "evaluation", int(r.limites["questions_par_jour_evaluation"])
         ):
             return JSONResponse({"texte": "plafond d'evaluation atteint"}, status_code=429)
+        if evaluation and CONVERSATION_EVAL.fullmatch(x_conversation):
+            cle_conversation = "eval-" + x_conversation
+        # La branche agent n'a pas de memoire : rien ne lui est passe.
+        memoire = (
+            {"conversation": c.memoire.ouvrir(cle_conversation)}
+            if c.memoire is not None and cle_conversation
+            else {}
+        )
+        # Conversation sans aucun echange : neuve (premiere question, ou memoire
+        # perdue : instance arretee faute de trafic, redemarrage). Le widget
+        # affiche alors son separateur s'il avait deja un fil.
+        neuve = bool(memoire) and not memoire["conversation"].echanges
 
         trace = uuid.uuid4().hex
         trace_gcp = ""
@@ -182,8 +217,12 @@ def creer_app(composants: Composants | None = None) -> FastAPI:
 
         async def flux() -> AsyncIterator[str]:
             chemin = "erreur"
+            if neuve:
+                yield sse(Evenement("conversation", {"neuve": True}))
             try:
-                async for e in c.assistant.repondre(q.question, q.langue, diagnostic=evaluation):
+                async for e in c.assistant.repondre(
+                    q.question, q.langue, diagnostic=evaluation, **memoire
+                ):
                     if e.type == "fin":
                         chemin = e.donnees["chemin"]
                         journal.ecrire(

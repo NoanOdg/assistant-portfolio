@@ -102,11 +102,11 @@ const charge = btoa(JSON.stringify({ challenge: defi, solution: { counter, deriv
 
 ## 4. Session : `POST /session`
 
-Requête : `Content-Type: application/json`, corps `{"altcha": "<charge>"}`.
+Requête : `Content-Type: application/json`, corps `{"altcha": "<charge>", "precedente": "<ancien jeton>"}`. `precedente` est facultatif (1 024 caractères au plus) : au renouvellement, le widget y met le jeton qu'il remplace, même expiré.
 
 | Code | Corps | Que faire |
 |---|---|---|
-| `200` | `{"session": "<jeton>", "expire_dans": 1800}` | Garder le jeton en mémoire ; il vaut `expire_dans` secondes (30 min). |
+| `200` | `{"session": "<jeton>", "expire_dans": 1800, "reprise": true}` | Garder le jeton en mémoire ; il vaut `expire_dans` secondes (30 min). `reprise` : la conversation de l'ancien jeton continue (§ 7 bis) ; `false` : conversation neuve. |
 | `403` | `{"detail": "verification anti-robots refusee", "motif": "invalide" \| "expire" \| "rejoue"}` | Redemander un défi, le résoudre, renvoyer. **Une seule nouvelle tentative**, puis message d'erreur. |
 | `422` | `{"detail": [...]}` (validation FastAPI) | Bogue du widget : champ `altcha` absent, vide ou trop long. |
 
@@ -114,6 +114,8 @@ Motifs du `403` :
 - `invalide` : solution fausse, défi modifié, signé par une autre clé, ou charge illisible ;
 - `expire` : défi de plus de 120 s ;
 - `rejoue` : ce défi a déjà été présenté. **Chaque défi ne sert qu'une fois**, que la solution soit juste ou fausse.
+
+Renouvellement glissant : `reprise` vaut `true` si l'ancien jeton est signé par le service, expiré depuis moins de 30 min, et si sa conversation a reçu une question depuis moins de 30 min. Sinon, ou sans `precedente`, `false`, sans erreur : un jeton illisible ne bloque jamais la session. Le défi ALTCHA reste exigé à chaque renouvellement.
 
 ## 5. Question : `POST /question`
 
@@ -152,6 +154,7 @@ Les événements sont séparés par une ligne vide (`\n\n`). `data` est toujours
 
 | `event` | `data` | Rendu |
 |---|---|---|
+| `conversation` | `{"neuve": true}` | Premier événement quand le service n'a aucun échange pour cette conversation : première question, ou mémoire perdue (instance arrêtée faute de trafic, redémarrage). Si le fil montrait déjà un échange, afficher le séparateur « Nouvelle conversation, contexte réinitialisé ». Absent si la mémoire est coupée. |
 | `etape` | `{"texte": "Recherche dans le portfolio"}` | État en cours, remplacé par le suivant. Textes possibles : « Recherche dans le portfolio », « Rédaction de la réponse », « Lecture de la page : <titre> », « Liste des projets » (en anglais : « Searching the portfolio », « Writing the answer », « Reading the page: <title> », « Listing the projects »). |
 | `texte` | `{"texte": "morceau"}` | Morceau de la réponse, **à ajouter** au précédent. Texte brut : l'insérer avec `textContent`, jamais `innerHTML`. La réponse rédigée finit par les numéros des passages utilisés, par exemple `[1] [3]`, qui renvoient à `sources[].n`. |
 | `sources` | `{"citees": true, "sources": [{"n": 1, "titre": "...", "section": "...", "url": "https://noan-ouedraogo.dev/..."}]}` | Liste de liens (5 au plus) sous la réponse. `citees: false` : le modèle n'a rien cité, ce sont les pages consultées (3 au plus) ; l'intituler « Pages consultées » plutôt que « Sources ». `url` est absolue, ancre comprise. |
@@ -167,6 +170,7 @@ Suites possibles :
 
 | Cas | Événements |
 |---|---|
+| Tout flux | précédé de `conversation` si la conversation est neuve (§ 7 bis) |
 | Réponse | `etape`, `etape`, `texte` × n, `sources`, `fin` (la branche agent peut ajouter des `etape` « Lecture de la page » et, rarement, une `carte` au milieu des `texte`) |
 | Demande de contact | `carte`, `texte`, `fin` |
 | Question personnelle | `refus` (`personnel`), `fin` |
@@ -183,7 +187,21 @@ Si le flux se ferme sans `fin` (coupure, délai de Cloud Run de 35 s), traiter c
 2. Dès la solution trouvée : `POST /session`. Garder le jeton et l'heure d'expiration (`expire_dans`).
 3. Envoi : `POST /question`. Si le jeton expire dans moins d'une minute, rouvrir d'abord une session.
 4. `401` → étapes 1 et 2, puis une seule relance. `403` sur `/session` → nouveau défi, une seule relance.
-5. Pendant le flux : bouton d'envoi désactivé, `aria-busy="true"` ; une seule question à la fois (le service ne garde aucun historique).
+5. Pendant le flux : bouton d'envoi désactivé, `aria-busy="true"` ; une seule question à la fois (les tours d'une conversation se suivent).
+6. Renouvellement (jeton à moins d'une minute de l'expiration, ou `401`) : envoyer l'ancien jeton dans `precedente`. Si `reprise` vaut `false` alors qu'un échange a déjà eu lieu avec l'ancien jeton, afficher le séparateur « Nouvelle conversation, contexte réinitialisé » / « New conversation, context reset » avant la question.
+7. « Nouvelle conversation » (bouton de l'en-tête, visible dès le premier échange) : vider le fil et oublier le jeton, sans `precedente` à la session suivante.
+
+## 7 bis. Mémoire de conversation
+
+Le service suit le fil d'une conversation : « Et quelles technos ? » après une question sur l'INSEI vise l'assistant de l'INSEI.
+
+- **Premier tour** : rien ne change, aucun appel de plus.
+- **Tours suivants** : un appel court au modèle réécrit la question en question autonome. Le code vérifie qu'elle n'ajoute aucun nom ni chiffre absent de la conversation, sinon il garde la question d'origine. En cas d'erreur ou de délai de la réécriture (4 s), la question d'origine part telle quelle : le widget ne voit aucune différence. Une demande de traduire, raccourcir ou reformuler la réponse précédente se rédige à partir des mêmes passages, sans nouvelle recherche. Le modèle qui rédige ne reçoit jamais l'historique.
+- **Ce qui est gardé** : les 3 derniers échanges (question réécrite, réponse affichée tronquée à 300 caractères, identifiants des passages cités, marque de refus) et le sujet courant (dernière question réécrite qui a reçu une réponse, et les projets de ses sources). Un refus ne change pas le sujet.
+- **Où, combien de temps** : en mémoire du service seulement, jamais sur disque, en base ni dans les journaux. La conversation est effacée 30 min après sa dernière question, ou au redémarrage du service. « Nouvelle conversation » dans le widget l'abandonne : sans le jeton, elle n'est plus jamais lue, et s'efface à son tour 30 min après.
+- **Clé** : l'identifiant de conversation porté par le jeton de session, jamais l'adresse du visiteur.
+- Aucun nombre maximal de questions par conversation : la fenêtre de 3 échanges borne le contexte. Les limites par visiteur et du site (§ 8) s'appliquent comme avant.
+- L'évaluation de la CI nomme ses conversations par l'en-tête `X-Conversation` (64 caractères `[A-Za-z0-9_-]`), lu seulement avec `X-Jeton-Evaluation`. Le widget ne l'envoie jamais (il n'est pas dans les en-têtes CORS permis).
 
 ## 8. Limites du service
 
@@ -193,7 +211,8 @@ Si le flux se ferme sans `fin` (coupure, délai de Cloud Run de 35 s), traiter c
 | Réponse | 450 jetons, 30 s |
 | Visiteur | 5 questions par minute, 30 par jour |
 | Site entier | 60 questions par jour |
-| Session | 30 min |
+| Session | 30 min, renouvelable sans perdre la conversation |
+| Conversation | 3 derniers échanges et le sujet courant, effacés 30 min après la dernière question |
 | Défi ALTCHA | 120 s, une seule utilisation |
 
 Toutes viennent de `config/reglages.toml` et peuvent changer : le widget n'en code aucune en dur, sauf `maxlength="500"`.

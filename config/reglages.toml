@@ -120,6 +120,25 @@ questions_par_jour_global = 200
 questions_par_jour_evaluation = 150
 duree_session_s = 1800
 
+[memoire]
+# Memoire de conversation courte (branche chemin seulement). Au premier tour,
+# rien ne change. Ensuite, un appel court reecrit la question en question
+# autonome (prompts/reecriture.md) ; le modele de redaction ne voit jamais
+# l'historique. Gardes en memoire du processus, jamais ecrits : les `tours`
+# derniers echanges et le sujet courant, 30 min (limites.duree_session_s)
+# apres la derniere question. false : chaque question est un premier tour.
+active = true
+tours = 3
+caracteres_reponse = 300
+# Au-dela, la question d'origine part telle quelle (jamais d'echec visible).
+delai_reecriture_s = 4
+jetons_reecriture = 256
+# Modele de la reecriture ; vide = moteur.modele_redaction (meme region, meme
+# niveau de reflexion). Un autre modele doit avoir sa table [modeles."<id>"].
+modele = ""
+# Comparaison : passages fusionnes des sous-questions, au plus.
+passages_comparaison = 8
+
 [securite]
 # CORS : seules ces origines peuvent appeler le service depuis un navigateur.
 origines = ["https://noan-ouedraogo.dev"]
