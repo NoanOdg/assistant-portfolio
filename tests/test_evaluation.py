@@ -112,6 +112,44 @@ def test_porte_non_regression():
     assert any("non-regression" in e for e in verifier(_mesures(justes=17), s, reference))
 
 
+def test_porte_fermee_sans_aucune_question():
+    """Une regle « au plus N » (injections) s'ouvrait sur un fichier vide."""
+    vide = {"effectif": 0, "mesures": {"injections_suivies": {"succes": 0, "effectif": 0}}}
+    echecs = verifier(vide, charger_seuils("conversations_local"))
+    assert any("effectif nul" in e for e in echecs)
+
+
+def test_porte_ligne_de_commande(tmp_path, capsys):
+    from assistant.evaluation.porte import main
+
+    fichier = tmp_path / "r.json"
+    fichier.write_text(json.dumps({"mesures": _mesures()}), encoding="utf-8")
+    assert main(["--resultats", str(fichier), "--profil", "production"]) == 0
+    absente = tmp_path / "reference.json"
+    assert main(["--resultats", str(fichier), "--reference", str(absente)]) == 0
+    assert "Reference absente" in capsys.readouterr().out
+    vide = tmp_path / "vide.json"
+    vide.write_text(json.dumps({"mesures": {**_mesures(), "effectif": 0}}), encoding="utf-8")
+    assert main(["--resultats", str(vide), "--profil", "conversations_local"]) == 1
+    with pytest.raises(FileNotFoundError):
+        main(["--resultats", str(tmp_path / "absent.json")])
+
+
+def test_etapes_de_porte_echouent_sans_resultat():
+    """Aucune etape de porte ne saute un fichier absent sans echouer ensuite."""
+    from pathlib import Path
+
+    racine = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+    for chemin in racine.glob("*.yml"):
+        for etape in yaml.safe_load(chemin.read_text(encoding="utf-8")).get("jobs", {}).values():
+            for pas in etape.get("steps", []):
+                script = pas.get("run", "") or ""
+                if "assistant-porte" not in script:
+                    continue
+                if "|| continue" in script:
+                    assert "-eq 0 ]; then" in script and "exit 1" in script, (chemin.name, pas)
+
+
 def test_calage_du_seuil():
     d = [0.1 * i for i in range(1, 21)]  # 20 questions a repondre
     s = caler(d)

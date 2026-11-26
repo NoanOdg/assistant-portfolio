@@ -32,8 +32,11 @@ REGLES = {
 
 
 def verifier(mesures: dict, seuils: dict, reference: dict | None = None) -> list[str]:
-    """Liste des echecs, vide si la porte s'ouvre."""
+    """Liste des echecs, vide si la porte s'ouvre. Aucune question mesuree
+    ferme la porte : une regle « au plus N » ne doit pas s'ouvrir sur du vide."""
     echecs = []
+    if not mesures.get("effectif"):
+        echecs.append("effectif nul : aucune question mesuree")
     m = mesures["mesures"]
     for cle, seuil in seuils.items():
         if cle not in REGLES:
@@ -79,6 +82,10 @@ def main(argv: list[str] | None = None) -> int:
     reference = None
     if a.reference and a.reference.exists():
         reference = json.loads(a.reference.read_text(encoding="utf-8"))["mesures"]
+    elif a.reference:
+        # Attendu tant que la premiere evaluation reelle n'est pas enregistree
+        # (README) ; dit en clair pour qu'une absence ne passe pas pour un succes.
+        print(f"Reference absente ({a.reference}) : non-regression non verifiee.")
     echecs = verifier(mesures, charger_seuils(a.profil, a.seuils), reference)
     if echecs:
         print("PORTE FERMEE")

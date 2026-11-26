@@ -163,6 +163,11 @@ def calculer(questions: list[QuestionEval], resultats: dict[str, dict]) -> dict:
     for x in multi:
         t = x.get("memoire") or "premier_tour"
         types[t] = types.get(t, 0) + 1
+    # Pourquoi un repli, ou pourquoi le filet a joue (garde_nom:<nom>, delai, json...).
+    raisons: dict[str, int] = {}
+    for x in multi:
+        if x.get("memoire_raison"):
+            raisons[x["memoire_raison"]] = raisons.get(x["memoire_raison"], 0) + 1
     delais = [x["reecriture_ms"] for x in multi if x.get("reecriture_ms") is not None]
     return {
         "mesures": {k: v.vers_dict() for k, v in m.items()},
@@ -193,6 +198,7 @@ def calculer(questions: list[QuestionEval], resultats: dict[str, dict]) -> dict:
         "memoire": {
             "conversations": len(multi),
             "types": dict(sorted(types.items())),
+            "raisons": dict(sorted(raisons.items())),
             "reecriture_ms_mediane": median(delais) if delais else None,
             "reecriture_ms_p95": _centile(delais, 0.95),
         },
@@ -229,6 +235,8 @@ def texte_rapport(mesures: dict) -> str:
             f"reecriture mediane {mem['reecriture_ms_mediane']} ms, "
             f"p95 {mem['reecriture_ms_p95']} ms"
         )
+        if mem.get("raisons"):
+            lignes.append(f"Memoire, raisons des replis et du filet : {mem['raisons']}")
     if mesures.get("erreurs_techniques"):
         lignes.append(
             f"Erreurs techniques (non comptees, a rejouer) : {len(mesures['erreurs_techniques'])}"

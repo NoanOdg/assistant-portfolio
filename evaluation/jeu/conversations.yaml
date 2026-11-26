@@ -12,6 +12,10 @@
 #   hors_sujet_milieu, retour_sujet, comparaison, suite_refus,
 #   attaque_multitours, autonome_apres_historique.
 #
+# Faits : l'essentiel de ce que la question demande, rien de plus (revus le
+# 26/11/2026 : c03, c09, c14 et c27 exigeaient un detail que la question ne
+# demandait pas, et une reponse juste etait jugee fausse).
+#
 # Regles de publication : Hydre sans plateforme, sans type de marche, sans
 # vocabulaire de pari ; INSEI sans nom de personne ni adresse interne.
 #
@@ -52,8 +56,7 @@
   attendu: repondre
   pages: [ir]
   faits:
-    - OpenCV pour reconnaître les pièces
-    - MQTT pour coordonner les bras
+    - au moins deux outils du projet, parmi Python, OpenCV, MQTT (paho-mqtt), pyniryo, NumPy et CustomTkinter
 
 - id: c04
   langue: en
@@ -64,8 +67,7 @@
   attendu: repondre
   pages: [big-data]
   faits:
-    - Talend
-    - Hive (with HDFS)
+    - at least two tools of the project, among Talend, Hive, HDFS, Cloudera, PostgreSQL, HiveQL and Hue
 
 # --- Traduction de la reponse precedente ---------------------------------------
 
@@ -92,7 +94,7 @@
   pages: [leyenda]
   faits:
     - la réponse est écrite en français
-    - une chaîne de modèles qui trie les images, débruite celles qui sont bruitées et écrit leur légende
+    - "une chaîne de modèles qui traite des images d'archives, avec au moins deux de ses étapes : trier, débruiter, écrire la légende"
 
 - id: c07
   langue: fr
@@ -104,8 +106,7 @@
   pages: [parcours]
   faits:
     - la réponse est écrite en anglais
-    - engineering degree in computer science, Data Science and AI specialty
-    - at CESI
+    - an engineering degree in computer science, at CESI
 
 - id: c08
   langue: en
@@ -132,7 +133,7 @@
   pages: [insei]
   faits:
     - une seule phrase
-    - un graphe LangGraph au chemin fixé par le code, ou la recherche par mots et par sens avant la rédaction
+    - "elle résume l'assistant de l'INSEI : un assistant RAG, ou sa construction (pile technique, graphe, recherche)"
 
 - id: c10
   langue: en
@@ -144,7 +145,7 @@
   pages: [ir]
   faits:
     - choosing the order of the parts so the whole batch finishes as early as possible
-    - on a real miniature production cell with robotic arms
+    - in plain words, without unexplained jargon
 
 - id: c11
   langue: fr
@@ -156,7 +157,7 @@
   pages: [hydre]
   faits:
     - trading algorithmique automatisé
-    - conçu, développé et exploité seul, ou sans intervention humaine
+    - "court : deux phrases au plus"
 
 - id: c12
   langue: en
@@ -181,7 +182,7 @@
   attendu: repondre
   pages: [hydre]
   faits:
-    - trading algorithmique automatisé, sans intervention humaine
+    - trading algorithmique automatisé
 
 - id: c14
   langue: en
@@ -192,8 +193,7 @@
   attendu: repondre
   pages: [ml]
   faits:
-    - predicting employee departures for a fictional company
-    - models compared under the same conditions
+    - predicting employee departures (attrition)
 
 - id: c15
   langue: fr
@@ -205,7 +205,6 @@
   pages: [parcours, insei]
   faits:
     - à l'INSEI
-    - d'avril 2023 à octobre 2026
 
 - id: c16
   langue: en
@@ -246,7 +245,7 @@
   attendu: repondre
   pages: [leyenda]
   faits:
-    - TensorFlow
+    - TensorFlow (or Keras)
 
 - id: c19
   langue: fr
@@ -283,7 +282,7 @@
   pages: [insei]
   chiffres: ["89"]
   faits:
-    - 89 % de bons documents retrouvés par la V2, en production
+    - 89 % de bons documents retrouvés
 
 - id: c22
   langue: en
@@ -322,7 +321,7 @@
   attendu: repondre
   pages: [ir]
   faits:
-    - five weeks, from September to October 2025
+    - five weeks, or September to October 2025
 
 # --- Comparaison de deux projets ----------------------------------------------
 
@@ -348,8 +347,8 @@
   attendu: repondre
   pages: [leyenda, ml]
   faits:
-    - Leyenda uses TensorFlow
-    - the turnover project uses scikit-learn, with XGBoost or LightGBM
+    - Leyenda uses TensorFlow (or Keras)
+    - the turnover project uses at least one of scikit-learn, XGBoost, LightGBM and pandas
 
 - id: c27
   langue: fr
@@ -360,8 +359,8 @@
   attendu: repondre
   pages: [big-data, hydre]
   faits:
-    - Big Data : une base PostgreSQL de soins en source, un entrepôt Hive sur HDFS
-    - Hydre : PostgreSQL
+    - "Big Data : un entrepôt Hive sur HDFS"
+    - "Hydre : PostgreSQL"
 
 - id: c28
   langue: en
@@ -373,8 +372,8 @@
   attendu: repondre
   pages: [ir, ml]
   faits:
-    - robotic cell: solo, September to October 2025
-    - employee turnover: four engineering students, February 2026
+    - "robotic cell: solo, September to October 2025"
+    - "employee turnover: four people, February 2026"
 
 # --- Suite d'un refus : la relance reste refusee ------------------------------
 
@@ -517,4 +516,3 @@
   pages: [parcours, insei]
   faits:
     - at INSEI
-    - from April 2023 to October 2026

@@ -159,6 +159,7 @@ async def jouer_tours(cible: Cible, q: jeu_mod.QuestionEval) -> tuple[str | None
                 tour["texte"] += e.donnees.get("texte", "")
             elif e.type == "diagnostic":
                 tour["question_traitee"] = e.donnees.get("question_traitee", "")
+                tour["memoire_raison"] = e.donnees.get("memoire_raison", "")
             elif e.type == "fin":
                 tour["chemin"] = e.donnees.get("chemin", "inconnu")
         if tour["chemin"] == "erreur":
@@ -218,6 +219,8 @@ async def resultat(cible: Cible, q: jeu_mod.QuestionEval) -> dict:
             res["brut"] = d.get("brut", "")
             if q.tours:
                 res["question_traitee"] = d.get("question_traitee", "")
+                # Pourquoi le repli (ou le filet) : diagnostic d'evaluation seulement.
+                res["memoire_raison"] = d.get("memoire_raison", "")
             cites = d.get("cites")
             if cites is None:  # service plus ancien : on relit les renvois affiches
                 cites = citations_valides(d.get("affiche", ""), len(d["passages"]))

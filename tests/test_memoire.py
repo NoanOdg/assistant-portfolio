@@ -17,14 +17,16 @@ from assistant.evaluation.juge import contenu_juge
 from assistant.fabrique import construire
 from assistant.generation import FauxGenerateur
 from assistant.memoire import Conversation, Memoire, Sujet, tronquer
-from assistant.modeles import Evenement, Passage
-from assistant.pipeline import Assistant, Parametres, construire_contenu
+from assistant.modeles import Evenement, Morceau, Passage
+from assistant.pipeline import Assistant, Parametres, charger_consigne, construire_contenu
 from assistant.recherche import RechercheMemoire
 from assistant.reecriture import (
     FauxReecrivain,
     ReglagesMemoire,
     ajoute_un_nom,
     contenu_reecriture,
+    demande_de_transformation,
+    langue_demandee,
     noms,
     noms_du_corpus,
     plan_depuis,
@@ -657,3 +659,251 @@ def test_evenement_conversation_neuve(client, composants):
     assert "conversation" not in types(poser_http(client, "Et la période ?", j))
     composants.memoire._conv.clear()  # instance arretee faute de trafic : memoire perdue
     assert types(poser_http(client, "Et la période ?", j))[0] == "conversation"
+
+
+# --- Corrections du 26/11/2026 (mesure Vertex de la memoire) ------------------------
+
+Q_PANNES_EN = "What share of failures does the monitor catch?"
+
+
+def morceau(contexte: str, texte: str, projet: str = "p", titre: str = "T") -> Morceau:
+    return Morceau("i", "/x", "", titre, contexte, texte, "fr", projet, "prose", "e")
+
+
+def test_noms_du_corpus_sans_mots_courants():
+    """Cause des replis c06, c07, c08 et c28 : un mot courant pris dans un titre
+    (« En bref », « Head of », « FORMATION ») passait pour un nom connu, et toute
+    reecriture qui l'employait retombait sur la question d'origine."""
+    morceaux = [
+        morceau("Leyenda > En bref", "Le projet Leyenda utilise TensorFlow, en local.", "leyenda"),
+        morceau("Parcours > Langues", "Il parle trois langues. Head of data sur le projet."),
+        morceau("CV", "Claude Code n8n FORMATION ingénieur. Une formation à l'INSEI."),
+        morceau("Background", "Two projects of the school, with Qdrant."),
+    ]
+    connus = noms_du_corpus(morceaux)
+    assert {"leyenda", "tensorflow", "insei", "qdrant"} <= connus
+    for courant in ("en", "of", "projet", "langues", "head", "formation", "two", "with"):
+        assert courant not in connus
+    # La reecriture en francais d'une question anglaise ne bute plus sur ces mots.
+    sources = "Which languages does Noan speak? Noan speaks French."
+    assert not ajoute_un_nom("Traduis en français la réponse sur les langues.", sources, connus)
+    assert not ajoute_un_nom(
+        "What was the team size and period of the employee project?",
+        "the employee project",
+        connus,
+    )
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["Traduis en Français.", "Say it in English, please.", "Réponds en Anglais ou en Espagnol."],
+)
+def test_noms_de_langues_jamais_un_nom(question):
+    connus = {"francais", "anglais", "espagnol", "english", "french", "spanish"}
+    assert noms(question, connus) == set()
+    assert not ajoute_un_nom(question, "rien", connus)
+
+
+@pytest.mark.parametrize(
+    ("question", "attendu", "langue"),
+    [
+        ("Can you say that in French?", True, "fr"),
+        ("Translate your answer into English, please.", True, "en"),
+        ("Traduis en français.", True, "fr"),
+        ("Traduis ta réponse en anglais.", True, "en"),
+        ("Et en anglais ?", True, "en"),
+        ("Résume ça en une phrase.", True, ""),
+        ("Plus court, s'il te plaît.", True, ""),
+        ("Shorter, please.", True, ""),
+        ("Rephrase that without jargon.", True, ""),
+        ("Reformule autrement.", True, ""),
+        ("Explain it more simply, for a non-technical recruiter.", True, ""),
+        ("Dis-le autrement, pour quelqu'un qui n'est pas technique.", True, ""),
+        ("Résume le projet Hydre.", False, ""),  # un nom : nouveau sujet possible
+        ("Quelles langues parle-t-il en anglais ?", False, "en"),  # demande un fait
+        ("Where can I download his resume?", False, ""),  # resume = CV
+        ("Compare those two projects: team size and period.", False, ""),
+        ("Et quelles technos utilise-t-il ?", False, ""),
+    ],
+)
+def test_filet_des_transformations(question, attendu, langue):
+    assert demande_de_transformation(question, {"hydre"}) is attendu
+    assert langue_demandee(question) == langue
+
+
+def transformation(q: str) -> dict:
+    return {"type": "transformation", "question_autonome": q, "sous_questions": []}
+
+
+@pytest.mark.parametrize(
+    ("reecrivain", "raison"),
+    [
+        # Ecrite dans la langue demandee : plus aucun mot courant ne bloque (c06).
+        (
+            FauxReecrivain([transformation("Dis en français quelle part des pannes il détecte.")]),
+            "",
+        ),
+        # Garde-fou sur une transformation : la demande d'origine reste une transformation.
+        (
+            FauxReecrivain([transformation("Translate the Kubernetes answer into French.")]),
+            "garde_nom:kubernetes",
+        ),
+        # Le modele hesite ou ne repond pas : le filet deterministe la rattrape.
+        (
+            FauxReecrivain([{"type": "nouveau_sujet", "question_autonome": "x"}]),
+            "filet:nouveau_sujet",
+        ),
+        (
+            FauxReecrivain([suite("Can you say in French what Kubernetes does?")]),
+            "filet:garde_nom:kubernetes",
+        ),
+        (FauxReecrivain(erreur=RuntimeError("429")), "filet:erreur:RuntimeError"),
+        (FauxReecrivain(attente_s=0.5), "filet:delai"),
+    ],
+    ids=["langue_demandee", "garde", "nouveau_sujet", "suite_bloquee", "erreur", "delai"],
+)
+async def test_traduction_toujours_une_transformation(fabriquer, reecrivain, raison):
+    gen = FauxGenerateur()
+    a = await fabriquer(reecrivain=reecrivain, generateur=gen, delai_reecriture_s=0.05)
+    c = conv()
+    await poser(a, Q_PANNES_EN, c, "en")
+    vecteurs = a.embedder.appels
+    evts = await poser(a, "Can you say that in French?", c, "en")
+    assert fin(evts)["bilan"]["memoire"] == "transformation"
+    assert fin(evts)["chemin"] == "reponse"
+    assert a.embedder.appels == vecteurs  # aucune recherche, aucun refus par le seuil
+    assert diag(evts)["memoire_raison"] == raison
+    contenu = gen.appels[-1]["contenu"]
+    assert "<reponse_precedente>" in contenu
+    # La langue demandee l'emporte sur celle de la question et de la page.
+    assert "Langue demandée : français." in contenu
+
+
+async def test_traduction_vers_l_anglais_depuis_une_page_francaise(fabriquer):
+    gen = FauxGenerateur()
+    r = FauxReecrivain([transformation("Translate into English the answer on failures.")])
+    a = await fabriquer(reecrivain=r, generateur=gen)
+    c = conv()
+    await poser(a, Q_PANNES, c)
+    evts = await poser(a, "Translate your answer into English, please.", c)
+    assert fin(evts)["bilan"]["memoire"] == "transformation"
+    assert "Langue demandée : anglais." in gen.appels[-1]["contenu"]
+
+
+def test_regle_de_langue_et_regle_4_de_la_consigne():
+    consigne = charger_consigne()
+    assert "la demande explicite l'emporte sur la langue de la question" in consigne
+    # Comparer deux projets de Noan est permis ; seule la comparaison a une autre
+    # personne est refusee (c26 recevait [REFUS]).
+    assert "Comparer deux projets, deux expériences ou deux outils de Noan est permis" in consigne
+    assert "si elle compare Noan à une autre personne" in consigne
+    assert "comparaison avec une autre personne" not in consigne
+
+
+async def test_ces_deux_projets_resolus_par_les_echanges(fabriquer):
+    """c28 : « those two projects » apres deux echanges sur deux sujets. La
+    reecriture recoit les projets cites par chaque echange, et un nom qui n'y
+    figure que par son titre ne fait plus retomber sur la question d'origine."""
+    sous = [
+        "Quelle est la période du projet Surveillance ?",
+        "Quelle est la période de la formation ?",
+    ]
+    vus: list[str] = []
+
+    def reponses(contenu: str) -> dict:
+        vus.append(contenu)
+        if len(vus) == 1:
+            return {"type": "nouveau_sujet", "question_autonome": "", "sous_questions": []}
+        return {
+            "type": "comparaison",
+            "question_autonome": "Compare le projet Surveillance et la formation : période.",
+            "sous_questions": sous,
+        }
+
+    gen = FauxGenerateur()
+    a = await fabriquer(reecrivain=FauxReecrivain(reponses), generateur=gen)
+    c = conv()
+    await poser(a, Q_PANNES, c)
+    await poser(a, Q_FORMATION, c)
+    evts = await poser(a, "Compare ces deux sujets : la période.", c)
+    contenu = vus[-1]
+    assert contenu.count("<echange>") == 2
+    assert "<projets>Surveillance : un moniteur de pannes</projets>" in contenu
+    assert "<projets>Parcours</projets>" in contenu
+    assert fin(evts)["bilan"]["memoire"] == "comparaison"
+    assert diag(evts)["memoire_raison"] == ""
+    # Les passages des deux sous-questions arrivent au redacteur (c26).
+    assert {p["projet"] for p in diag(evts)["passages"]} == {"exemple", "parcours"}
+    redige = gen.appels[-1]["contenu"]
+    assert "moniteur" in redige and "Formation" in redige
+
+
+@pytest.mark.parametrize(
+    ("reecrivain", "raison"),
+    [
+        (FauxReecrivain(erreur=RuntimeError("429 quota")), "erreur:RuntimeError"),
+        (FauxReecrivain(erreur=json.JSONDecodeError("illisible", "", 0)), "json"),
+        (FauxReecrivain(attente_s=0.5), "delai"),
+        (FauxReecrivain([{"type": "inconnu"}]), "type"),
+        (FauxReecrivain(["pas un objet"]), "forme"),
+        (FauxReecrivain([suite("")]), "vide"),
+        (FauxReecrivain([suite("x" * 501)]), "longueur"),
+        (FauxReecrivain([suite("Quelle formation sur Kubernetes ?")]), "garde_nom:kubernetes"),
+    ],
+    ids=["erreur", "json", "delai", "type", "forme", "vide", "longueur", "garde"],
+)
+async def test_raison_du_repli_dans_le_diagnostic_seulement(fabriquer, reecrivain, raison):
+    a = await fabriquer(reecrivain=reecrivain, delai_reecriture_s=0.05)
+    c = conv()
+    c.noter(Q_PANNES, "Il détecte 87,3 % des pannes.", (), False, Sujet(Q_PANNES))
+    evts = await poser(a, Q_FORMATION, c)
+    assert fin(evts)["bilan"]["memoire"] == "repli"
+    assert diag(evts)["memoire_raison"] == raison
+    assert raison not in json.dumps(fin(evts))  # le bilan part dans les journaux
+
+
+async def test_raison_transformation_apres_un_refus(fabriquer):
+    a = await fabriquer(reecrivain=FauxReecrivain([transformation("Traduire la réponse.")]))
+    c = conv()
+    c.noter(Q_PANNES, "Il détecte 87,3 % des pannes.", ("id-x",), False, Sujet(Q_PANNES))
+    c.noter("Une recette ?", "", (), True)
+    evts = await poser(a, "Traduis.", c)
+    assert diag(evts)["memoire_raison"] == "transformation_apres_refus"
+
+
+def test_raison_du_repli_jamais_dans_les_journaux(client, composants, capsys):
+    composants.assistant.reecrivain = FauxReecrivain([suite("Le moniteur sur Kubernetes ?")])
+    j = ouvrir_session(client)
+    poser_http(client, Q_PANNES, j)
+    poser_http(client, "Et où tourne-t-il ?", j)
+    sortie = capsys.readouterr().out
+    assert "garde_nom" not in sortie and "memoire_raison" not in sortie
+    assert "kubernetes" not in sortie.lower()
+
+
+class CibleDiagnostic:
+    async def poser(self, question, langue, conversation=None):
+        yield Evenement("texte", {"texte": "ok"})
+        yield Evenement(
+            "diagnostic",
+            {"passages": [], "question_traitee": question, "memoire_raison": "delai"},
+        )
+        yield Evenement("fin", {"chemin": "reponse", "bilan": {"memoire": "repli"}})
+
+
+async def test_executer_garde_la_raison_du_repli():
+    q = QuestionEval(
+        id="c98", langue="fr", famille="suite_elliptique", question="Et ensuite ?",
+        attendu="repondre", reponse_attendue="", pages=("x",), faits=("f",),
+        tours=("Premier ?",),
+    )  # fmt: skip
+    res = await resultat(CibleDiagnostic(), q)
+    assert res["memoire_raison"] == "delai" and res["tours"][0]["memoire_raison"] == "delai"
+
+
+def test_faits_du_jeu_multitours_sont_des_phrases():
+    """Un fait non cite qui contient « : » devenait un dictionnaire YAML."""
+    import yaml
+
+    brut = yaml.safe_load(jeu_mod.JEU_CONVERSATIONS.read_text(encoding="utf-8"))
+    assert all(isinstance(f, str) for q in brut for f in q.get("faits") or [])
