@@ -106,6 +106,52 @@ def vue_technologies(lues: list[tuple[str, PageLue]], langue: str) -> Section | 
     return Section(v["page"], (v["titre"],), "", "\n\n".join([v["intro"], *lignes]), "pile")
 
 
+VERSION = re.compile(r"\s+v?\d+(?:\.\d+)*$")
+
+
+def vues_par_technologie(lues: list[tuple[str, PageLue]], langue: str) -> list[Section]:
+    """Une courte section par technologie : les projets dont la pile la publie.
+    Sert "quels projets utilisent X" par un passage tres proche de la question.
+    Seul regroupement : le numero de version final ("PostgreSQL 16" et
+    "PostgreSQL" sont la meme technologie) ; la graphie publiee reste citee."""
+    par_techno: dict[str, tuple[str, list[str]]] = {}
+    for _, lue in lues:
+        if lue.langue != langue or lue.pile is None:
+            continue
+        for _, briques in lue.pile.lignes:
+            for b in briques:
+                nom = VERSION.sub("", b.strip())
+                if not nom:
+                    continue
+                cle = nom.casefold()
+                affiche, projets = par_techno.setdefault(cle, (nom, []))
+                mention = lue.nom if b.strip() == nom else f"{lue.nom} ({b.strip()})"
+                if mention not in projets:
+                    projets.append(mention)
+    # "Docker Compose" compte aussi pour Docker, cite sous son nom publie.
+    for cle, (_, projets) in par_techno.items():
+        for autre, (nom_autre, projets_autre) in par_techno.items():
+            if autre != cle and autre.startswith(cle + " "):
+                for m in projets_autre:
+                    projet = m.split(" (")[0]
+                    if all(x.split(" (")[0] != projet for x in projets):
+                        projets.append(f"{projet} ({nom_autre})")
+    v = VUE[langue]
+    sections = []
+    # Seules les technologies communes a plusieurs projets ont leur section :
+    # pour les autres, la pile du projet repond deja, et des centaines de
+    # sections d'une ligne evinceraient les vrais passages de la recherche.
+    for affiche, projets in par_techno.values():
+        if len({m.split(" (")[0] for m in projets}) < 2:
+            continue
+        if langue == "fr":
+            texte = f"Projets qui utilisent {affiche} : {', '.join(projets)}."
+        else:
+            texte = f"Projects that use {affiche}: {', '.join(projets)}."
+        sections.append(Section(v["page"], (v["titre"], affiche), "", texte, "pile"))
+    return sections
+
+
 class SourceSite:
     def __init__(self, site: str, client: httpx.Client | None = None) -> None:
         self.site = site.rstrip("/")
@@ -153,13 +199,16 @@ class SourceSite:
             vue = vue_technologies(lues, langue)
             if vue is None:
                 continue
+            par_techno = vues_par_technologie(lues, langue)
             i = next((k for k, p in enumerate(pages) if p.url == chemin), None)
             if i is None:
-                pages.append(Page(chemin, langue, "projets", vue.titre_page, (vue,)))
+                pages.append(Page(chemin, langue, "projets", vue.titre_page, (vue, *par_techno)))
                 continue
             p = pages[i]
-            vue = Section(p.titre, vue.chemin, vue.ancre, vue.texte, vue.type)
-            pages[i] = Page(p.url, p.langue, p.projet, p.titre, (*p.sections, vue))
+            vues = [
+                Section(p.titre, x.chemin, x.ancre, x.texte, x.type) for x in (vue, *par_techno)
+            ]
+            pages[i] = Page(p.url, p.langue, p.projet, p.titre, (*p.sections, *vues))
         return pages
 
     def pages_cv(self) -> list[Page]:

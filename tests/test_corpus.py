@@ -284,8 +284,10 @@ def test_vue_technologies_derivee_des_piles():
     lues = [("/projets/moniteur", lire_page(PAGE_PROJET))]
     liste = Page("/projets", "fr", "projets", "Projets", (Section("Projets", (), "", "x"),))
     pages = SourceSite.ajouter_vues([liste], lues)
-    vue = pages[0].sections[-1]
-    assert vue.chemin == ("Technologies par projet",) and vue.type == "pile"
+    vue = next(x for x in pages[0].sections if x.chemin == ("Technologies par projet",))
+    assert vue.type == "pile"
+    # un seul projet : sa pile suffit, aucune section par technologie
+    assert not [x for x in pages[0].sections if len(x.chemin) == 2]
     assert "Moniteur (surveillance de pannes) : Python, Docker, PostgreSQL." in vue.texte
     assert all(p.langue == "fr" for p in pages)  # aucune pile anglaise : aucune vue anglaise
 
