@@ -219,6 +219,9 @@ class Assistant:
         """Avant toute recherche et tout modele : donnees personnelles -> refus ecrit,
         contact -> carte rendue par le code. None : la question suit son cours."""
         route = aiguiller(question, self.p.aiguillage)
+        if route == "consigne":
+            texte = textes.texte(langue, "consigne")
+            return [Evenement("refus", {"motif": "consigne", "texte": texte})], "refus_consigne"
         if route == "personnel":
             texte = textes.texte(langue, "personnel")
             return [Evenement("refus", {"motif": "personnel", "texte": texte})], "refus_personnel"

@@ -11,6 +11,8 @@ TEXTES = {
         "personnel": "Je ne réponds pas aux questions personnelles (rémunération, âge, adresse, "
         "santé, nationalité, vie privée). Noan y répondra directement : "
         "la page Contact permet de lui écrire.",
+        "consigne": "Je réponds seulement aux questions sur le parcours et les projets de Noan, "
+        "à partir de ce site.",
         "contact": "Voici les coordonnées de Noan et les liens vers ses CV.",
         "contact_telephone": "Aucun numéro de téléphone n'est publié. Voici le courriel de "
         "Noan, son LinkedIn et les liens vers ses CV.",
@@ -27,6 +29,8 @@ TEXTES = {
     "en": {
         "hors_corpus": "I can't find an answer to this question in the portfolio. "
         "For anything else, the Contact page lets you write to Noan.",
+        "consigne": "I only answer questions about Noan's background and projects, "
+        "based on this site.",
         "refus_modele": "The portfolio doesn't answer this question. "
         "To find out more, the Contact page lets you write to Noan.",
         "personnel": "I don't answer personal questions (pay, age, address, health, "

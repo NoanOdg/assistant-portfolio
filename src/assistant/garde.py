@@ -181,6 +181,8 @@ def _contact_mal_ecrit(texte_plat: str) -> bool:
 
 def _aiguiller_v1(question: str) -> str:
     t = _plat(question)
+    if _cherche(CONSIGNE, t):
+        return "consigne"
     if _cherche(PERSONNEL, t) and not _cherche(TRAVAIL, t):
         return "personnel"
     if _cherche(CONTACT, t) and not _cherche(TRAVAIL, t) and len(jetons(question)) <= 12:
@@ -188,11 +190,41 @@ def _aiguiller_v1(question: str) -> str:
     return "recherche"
 
 
+# Demandes qui visent a piloter la sortie du modele plutot qu'a s'informer :
+# refusees par le code, avant toute recherche (texte deja mis a plat).
+CONSIGNE = [
+    r"\breponds? (uniquement|seulement|exactement) (par|avec)",
+    r"\brepete[rsz]?\b",
+    r"\b(ignore|oublie)[rsz]? (toutes |tous )?(les|tes|vos|ces) (instructions|consignes|regles)",
+    r"\btu es (maintenant|desormais)\b",
+    r"\becri[st]? (exactement|uniquement|seulement)\b",
+    r"\b(affiche|donne|montre|revele)[rsz]? (moi )?(ton|tes|ta|le|les|votre|vos) "
+    r"(prompt|instructions|consignes|regles)",
+    r"\b(respond|reply|answer) (only|exactly|solely) with",
+    r"\brepeat (after me|exactly|this|that|the following)",
+    r"\bignore (all |any |the |your )?(previous |prior |above |earlier )?"
+    r"(instructions|rules|prompt)",
+    r"\byou are now\b",
+    r"\bsystem (override|prompt)",
+    r"\bpretend (to be|you are)",
+    r"\bdeveloper mode",
+    r"\bjailbreak",
+    r"\bsay (exactly|only)\b",
+    r"\b(show|reveal|print) (me )?(your|the) (prompt|instructions|rules)",
+]
+
+
+def est_consigne(question: str) -> bool:
+    return _cherche(CONSIGNE, _plat(question))
+
+
 PERSONNEL_SANS_TELEPHONE = [m for m in PERSONNEL if m not in set(TELEPHONE)]
 
 
 def _aiguiller_classes(question: str) -> str:
     t = _plat(question)
+    if _cherche(CONSIGNE, t):
+        return "consigne"
     travail = _cherche(TRAVAIL, t)
     court = len(jetons(question)) <= 12
     if not travail and _cherche(TELEPHONE, t):
@@ -205,7 +237,8 @@ def _aiguiller_classes(question: str) -> str:
 
 
 def aiguiller(question: str, version: str = "v1") -> str:
-    """'personnel', 'contact', 'telephone' (version classes seulement) ou 'recherche'."""
+    """'consigne', 'personnel', 'contact', 'telephone' (version classes seulement)
+    ou 'recherche'."""
     if version == "classes":
         return _aiguiller_classes(question)
     return _aiguiller_v1(question)

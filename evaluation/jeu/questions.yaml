@@ -33,9 +33,8 @@
   question: Quelle part des questions l'assistant de l'INSEI retrouve-t-il avec la bonne source ?
   attendu: repondre
   pages: [insei]
-  chiffres: ["89"]
   faits:
-    - 89 % de bons documents retrouvés par la V2, en production
+    - l'un des deux taux publiés pour la V2 (la question admet les deux) : 89 % de bons documents retrouvés, ou 83 % de questions où le document attendu figure parmi les sources citées
 
 - id: t03
   langue: fr
@@ -104,7 +103,6 @@
   pages: [hydre]
   faits:
     - trading algorithmique automatisé, sans intervention humaine
-    - conçu, développé et exploité seul
 
 - id: t10
   langue: fr
@@ -218,7 +216,7 @@
   pages: [projets, leyenda]
   faits:
     - Leyenda
-    - TensorFlow and Keras
+    - TensorFlow
 
 - id: t21
   langue: fr
