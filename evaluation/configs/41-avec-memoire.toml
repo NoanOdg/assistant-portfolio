@@ -1,0 +1,4 @@
+# Memoire de conversation active : mesure sur evaluation/jeu/conversations.yaml
+# avant de l'ouvrir en production (reglages.toml la garde coupee d'ici la).
+[memoire]
+active = true

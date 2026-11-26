@@ -127,7 +127,8 @@ duree_session_s = 1800
 # l'historique. Gardes en memoire du processus, jamais ecrits : les `tours`
 # derniers echanges et le sujet courant, 30 min (limites.duree_session_s)
 # apres la derniere question. false : chaque question est un premier tour.
-active = true
+# Coupee en production tant que la mesure (41-avec-memoire) n'a pas tranche.
+active = false
 tours = 3
 caracteres_reponse = 300
 # Au-dela, la question d'origine part telle quelle (jamais d'echec visible).

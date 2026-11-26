@@ -48,6 +48,8 @@ jobs:
       - run: uv run assistant-porte --resultats build/eval-locale.json --profil local
       # Jeu multi-tours : le harnais des conversations tourne avec le faux reecrivain.
       - run: uv run assistant-evaluer --cible local --juge heuristique --fichier-jeu evaluation/jeu/conversations.yaml --sortie build/conversations-locale.json
+        env:
+          ASSISTANT_MEMOIRE_ACTIVE: "true"  # coupee en production tant que la mesure n'a pas tranche
       - run: uv run assistant-porte --resultats build/conversations-locale.json --profil conversations_local
 
   terraform:

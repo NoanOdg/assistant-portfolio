@@ -30,7 +30,9 @@ def corpus_exemple(source_exemple):
 
 # Cout ALTCHA reduit pour la vitesse des tests ; test_altcha.py joue aussi les
 # reglages reels.
-ENV_TEST = {"ASSISTANT_ALTCHA_COUT": "10"}
+# Les tests jouent la memoire active (coupee en production tant que la mesure
+# n a pas tranche) ; test_memoire_coupee la coupe explicitement.
+ENV_TEST = {"ASSISTANT_ALTCHA_COUT": "10", "ASSISTANT_MEMOIRE_ACTIVE": "true"}
 
 
 @pytest.fixture
